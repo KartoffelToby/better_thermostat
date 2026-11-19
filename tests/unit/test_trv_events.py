@@ -13,7 +13,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 from homeassistant.util.async_ import create_eager_task
@@ -44,7 +44,10 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
 )
-from custom_components.better_thermostat.utils.controlling import TaskManager
+from custom_components.better_thermostat.utils.controlling import (
+    TaskManager,
+    read_reports_held_during_cycle,
+)
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import (
     CoolerSendCache,
@@ -214,6 +217,46 @@ async def test_valve_only_temperature_report_preserves_room_settings(
         schedule.assert_called_once_with(mock_bt)
     else:
         schedule.assert_not_called()
+
+
+def _room_with_a_copying_peer(bt):
+    """Give the room a peer BT writes 25.0 and this TRV a confirmed 22.0.
+
+    Returns the peer's record, for the caller to move its write on.
+    """
+    _add_homematicip_peer(bt)
+    peer = bt.real_trvs[PEER_ID]
+    peer.commanded_setpoint = 25.0
+    trv = bt.real_trvs[ENTITY_ID]
+    trv.commanded_setpoint = 22.0
+    trv.last_hvac_mode = "heat"
+    trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+    bt.hass.states.get.side_effect = None
+    return peer
+
+
+async def _report_setpoint(
+    bt,
+    old: dict[str, float | None],
+    new: dict[str, float | None],
+    *,
+    under_bt_context: bool = False,
+) -> None:
+    """Hand the TRV handler one report of this TRV, in heat on both sides."""
+    new_state = _make_state(attributes=new)
+    bt.hass.states.get.return_value = new_state
+    event = _make_event(bt, new_state=new_state, old_state=_make_state(attributes=old))
+    if under_bt_context:
+        event.context = bt.context
+    with patch(
+        "custom_components.better_thermostat.events.trv.convert_inbound_states",
+        return_value=HVACMode.HEAT,
+    ) as convert:
+        await trigger_trv_change(bt, event)
+    if under_bt_context:
+        convert.assert_not_called()
+    else:
+        convert.assert_called_once_with(bt, ENTITY_ID, new_state)
 
 
 def _add_homematicip_peer(bt):
@@ -394,6 +437,14 @@ class TestReportsWrittenSetpoint:
         trv = mock_bt.real_trvs[ENTITY_ID]
         state = _make_state(attributes={"temperature": reported})
         assert reports_written_setpoint(mock_bt, ENTITY_ID, trv, state) is expected
+
+    def test_a_write_to_another_trv_of_the_room_counts(self, mock_bt):
+        """A setpoint BT wrote to the room's other TRV is one of BT's writes."""
+        _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        state = _make_state(attributes={"temperature": 25.0})
+        assert reports_written_setpoint(mock_bt, ENTITY_ID, trv, state) is True
 
     def test_a_state_without_a_setpoint_answers_nothing(self, mock_bt):
         """A state that carries no setpoint is neither a write nor a turn."""
@@ -1194,6 +1245,34 @@ class TestHvacActionAndValvePosition:
         assert mock_bt.real_trvs[ENTITY_ID].valve_position == 42.0
         # A fresh report is open to a close again.
         assert mock_bt.real_trvs[ENTITY_ID].valve_report_answered is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "still_sent"),
+        [
+            pytest.param(HVACMode.HEAT, None, id="holds_the_mode_sent"),
+            pytest.param(HVACMode.OFF, HVACMode.HEAT, id="holds_another_mode"),
+        ],
+    )
+    async def test_a_report_of_the_mode_sent_ends_its_repeat(
+        self, mock_bt, reported, still_sent
+    ):
+        """A device seen holding the mode last sent has taken that write."""
+        trv_state = _make_state(reported)
+        # The registry has moved on to a later report than the event's.
+        mock_bt.hass.states.get.return_value = _make_state(
+            HVACMode.OFF if reported == HVACMode.HEAT else HVACMode.HEAT
+        )
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+        mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent = HVACMode.HEAT
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=reported,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent == still_sent
 
     @pytest.mark.asyncio
     async def test_hvac_action_updated_from_attribute(self, mock_bt):
@@ -2063,6 +2142,401 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.heat_target_temperature == 22.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "peer_released", "expected_target"),
+        [
+            pytest.param(25.0, False, 19.0, id="the_peers_write_is_no_press"),
+            pytest.param(25.0, True, 25.0, id="a_released_peer_wrote_nothing"),
+            pytest.param(23.0, False, 23.0, id="a_value_nobody_wrote_is_a_press"),
+        ],
+    )
+    async def test_a_setpoint_written_to_another_trv_of_the_room(
+        self, mock_bt, reported, peer_released, expected_target
+    ):
+        """A TRV reporting what BT wrote to its neighbour has not been turned.
+
+        Tado copies the setpoint of one TRV in a Tado room onto the others.
+        BT writes 25.0 to the peer and 22.0 to this TRV, which confirms
+        22.0 and then reports the peer's 25.0. The room target stays 19.0.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        if peer_released:
+            mock_bt.released_trvs = {PEER_ID}
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.commanded_setpoint = 22.0
+        trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+        old_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.side_effect = None
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == expected_target
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "copy_under_bt_context",
+        [
+            pytest.param(False, id="copy_under_its_own_context"),
+            pytest.param(True, id="copy_under_bt_context"),
+        ],
+    )
+    async def test_a_copy_the_trv_still_holds_is_no_press_once_the_peer_moved_on(
+        self, mock_bt, copy_under_bt_context
+    ):
+        """A TRV holding the peer's earlier write reports it again, unturned.
+
+        This TRV reports the peer's 25.0, under its own context or inside the
+        seconds Home Assistant still stamps BT's, and BT then writes the peer
+        26.0, which the peer confirms. This TRV reports 25.0 again beside a
+        new temperature reading, and the room target stays 19.0. A turn to
+        23.0 afterwards replaces the copy and is adopted.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+            under_bt_context=copy_under_bt_context,
+        )
+        assert mock_bt.heat_target_temperature == 19.0
+
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 19.0
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.5},
+            {"temperature": 23.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 23.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("held_setpoint", "expected_target"),
+        [
+            pytest.param(22.0, 25.0, id="held_report_of_another_value_ends_the_copy"),
+            pytest.param(25.0, 19.0, id="held_report_of_the_copy_keeps_it"),
+        ],
+    )
+    async def test_a_report_held_off_by_a_cycle_counts_for_the_copy(
+        self, mock_bt, held_setpoint, expected_target
+    ):
+        """A report a control cycle holds off updates the copy all the same.
+
+        This TRV reports the peer's 25.0, then a report a cycle holds off,
+        and the peer moves on to 26.0. After a held 22.0 the device no longer
+        holds the copy, so 25.0 is a turn back to it. After a held 25.0 it
+        still does, so 25.0 is no press.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        held_state = _make_state(
+            attributes={"temperature": held_setpoint, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = held_state
+        mock_bt.ignore_states = True
+        await trigger_trv_change(
+            mock_bt,
+            _make_event(
+                mock_bt,
+                new_state=held_state,
+                old_state=_make_state(
+                    attributes={"temperature": 25.0, "current_temperature": 18.0}
+                ),
+            ),
+        )
+        mock_bt.ignore_states = False
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": held_setpoint, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+
+        assert mock_bt.heat_target_temperature == expected_target
+
+    @pytest.mark.asyncio
+    async def test_a_held_report_the_device_cannot_be_read_from_leaves_the_copy(
+        self, mock_bt
+    ):
+        """An unavailable report's stale setpoint says nothing about the copy.
+
+        This TRV reports the peer's 25.0. A cycle holds off an unavailable
+        report that still names 22.0 while the registry already shows the TRV
+        back. Once the peer has moved on to 26.0, 25.0 is no press.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        mock_bt.hass.states.get.return_value = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 18.0}
+        )
+        mock_bt.ignore_states = True
+        await trigger_trv_change(
+            mock_bt,
+            _make_event(
+                mock_bt,
+                new_state=_make_state(
+                    "unavailable",
+                    attributes={"temperature": 22.0, "current_temperature": 18.0},
+                ),
+                old_state=_make_state(
+                    attributes={"temperature": 25.0, "current_temperature": 18.0}
+                ),
+            ),
+        )
+        mock_bt.ignore_states = False
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+
+        assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.asyncio
+    async def test_a_held_copy_is_not_read_as_a_turn_at_the_end_of_the_cycle(
+        self, mock_bt
+    ):
+        """A copy held off by a cycle stays a copy when the cycle reads it.
+
+        A cycle holds off this TRV reporting the peer's 25.0 and then the
+        device switching off at 22.0, which hides the report at the end of
+        the cycle. The peer has moved on to 26.0 by then, and the room target
+        stays 19.0.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+        reports = [
+            (
+                _make_state(attributes={"temperature": 22.0}),
+                _make_state(attributes={"temperature": 25.0}),
+            ),
+            (
+                _make_state(attributes={"temperature": 25.0}),
+                _make_state(HVACMode.OFF, attributes={"temperature": 22.0}),
+            ),
+        ]
+        mock_bt.ignore_states = True
+        for old_state, new_state in reports:
+            mock_bt.hass.states.get.return_value = new_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+        mock_bt.ignore_states = False
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+
+        await read_reports_held_during_cycle(mock_bt)
+
+        assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.asyncio
+    async def test_a_turn_read_late_leaves_the_copy_the_device_holds_since(
+        self, mock_bt
+    ):
+        """A turn the end of a cycle reads late does not end a later copy.
+
+        A cycle holds off a turn to 23.0, the peer's 25.0 arriving on this
+        TRV, and the device dropping out and returning with 25.0. The peer
+        moves on to 26.0 before the cycle ends. The turn becomes the room
+        target, and the device repeating 25.0 afterwards is no press.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+        gone = _make_state(STATE_UNAVAILABLE, attributes={"temperature": None})
+        at_turn = _make_state(attributes={"temperature": 23.0})
+        at_copy = _make_state(attributes={"temperature": 25.0})
+        mock_bt.hass.states.get.return_value = at_copy
+        mock_bt.ignore_states = True
+        for old_state, new_state in (
+            (_make_state(attributes={"temperature": 22.0}), at_turn),
+            (at_turn, at_copy),
+            (at_copy, gone),
+            (gone, at_copy),
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+        mock_bt.ignore_states = False
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+
+        await read_reports_held_during_cycle(mock_bt)
+        assert mock_bt.heat_target_temperature == 23.0
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 23.0
+
+    @pytest.mark.asyncio
+    async def test_a_turn_read_late_is_no_copy_of_a_write_that_followed_it(
+        self, mock_bt
+    ):
+        """A turn stays a turn when BT writes the neighbour the same value later.
+
+        A cycle holds off a turn to 25.0 while the peer holds 24.0. BT then
+        writes the peer 25.0, this TRV repeats 25.0 and switches off, which
+        hides the turn at the end of the cycle. The turn becomes the room
+        target.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+        peer.commanded_setpoint = 24.0
+        at_turn = _make_state(attributes={"temperature": 25.0})
+        repeated = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 18.5}
+        )
+        switched_off = _make_state(HVACMode.OFF, attributes={"temperature": 25.0})
+        mock_bt.ignore_states = True
+
+        async def _hold(old_state, new_state):
+            mock_bt.hass.states.get.return_value = new_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+
+        await _hold(_make_state(attributes={"temperature": 22.0}), at_turn)
+        peer.commanded_setpoint = 25.0
+        await _hold(at_turn, repeated)
+        await _hold(repeated, switched_off)
+        mock_bt.ignore_states = False
+
+        await read_reports_held_during_cycle(mock_bt)
+
+        assert mock_bt.heat_target_temperature == 25.0
+
+    @pytest.mark.asyncio
+    async def test_a_report_without_a_setpoint_leaves_the_copy(self, mock_bt):
+        """A report under BT's context that carries no setpoint ends no copy.
+
+        This TRV reports the peer's 25.0, then a state without a setpoint
+        inside the seconds Home Assistant still stamps BT's context. Once the
+        peer has moved on to 26.0, the TRV reporting 25.0 again is no press.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": None, "current_temperature": 18.0},
+            under_bt_context=True,
+        )
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.asyncio
+    async def test_a_turn_back_to_a_copy_the_trv_gave_up_is_a_press(self, mock_bt):
+        """A copy ends once the TRV reports BT's own write, under any context.
+
+        This TRV reports the peer's 25.0, BT writes the peer 26.0, and this
+        TRV then reports its own 22.0 inside the seconds Home Assistant still
+        stamps BT's context. A turn back to 25.0 is the user's and is adopted.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 22.0, "current_temperature": 18.0},
+            under_bt_context=True,
+        )
+        assert mock_bt.heat_target_temperature == 19.0
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        assert mock_bt.heat_target_temperature == 25.0
+
+    @pytest.mark.asyncio
+    async def test_a_turn_beyond_the_range_onto_the_peers_write_is_a_press(
+        self, mock_bt
+    ):
+        """A turn the clamp brings onto the peer's write is still a turn.
+
+        BT holds the peer at its 25.0 maximum. A turn to 27.0 on this TRV
+        clamps to 25.0 as well, and the room adopts 25.0.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.bt_max_temp = 25.0
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.commanded_setpoint = 22.0
+        trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+        old_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 27.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.side_effect = None
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 25.0
 
     @pytest.mark.asyncio
     async def test_same_setpoint_not_adopted(self, mock_bt):

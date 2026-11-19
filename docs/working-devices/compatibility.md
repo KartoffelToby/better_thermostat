@@ -50,17 +50,17 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 | **`TRVZB`** | **Sonoff Zigbee TRV (Z2M & ZHA)** | Supports **`Direct Valve Based`** (`0–100 %` via opening and closing degree numbers), **`Offset Based`** (note `-12.7 °C` firmware lower bound), and automatically **mirrors your external room sensor reading** into the TRV's external temperature input and selects external sensor mode (unless `Keep the TRV's sensor selection` is enabled). |
 | **`TRV-ZBT`** | **Sonoff Zigbee TRV Gen2** | Automatically mirrors your external room sensor reading into the TRV's external sensor input. Supports `Direct Valve Based`: Better Thermostat writes the valve position into both `heating_valve_position` and `idle_valve_position` ([Direct valve control](/calibration_algorithms/#devices-that-support-it)). |
 | **`SRTS-A01`** | **Aqara Smart Radiator Thermostat E1** | Automatically mirrors your external room sensor reading into `external_temperature_input` and switches `sensor` between `external` (during normal `optimal` control) and `internal` (during `sensor_fallback` / `hold`), unless `Keep the TRV's sensor selection` is enabled. |
-| **`014G2461`** | **Danfoss Ally (`014G2461` / `014G2463`), Popp `701721`, Hive `UK7004240`** | In **`No Calibration`** mode, automatically writes your room sensor reading (in hundredths of a `°C`, refreshed every 30 min) to `external_measured_room_sensor` so the Danfoss firmware regulates on your room thermometer natively. |
+| **`014G2461`** | **Danfoss Ally (`014G2461` / `014G2463`), Popp `701721`, Hive `UK7004240` (Z2M); `eTRV0100` / `eTRV0101` / `eTRV0103`, Popp `eT093WRO` / `eT093WRG`, Hive `TRV001` / `TRV003` (ZHA)** | In **`No Calibration`** mode, automatically writes your room sensor reading (refreshed every 30 min) to `external_measured_room_sensor` (ZHA: *External temperature sensor*) so the Danfoss firmware regulates on your room thermometer natively. |
 | **`SBTR-001AEU` (`Shelly BLU TRV`)** | **Shelly BLU TRV (via BLU Gateway)** | Dedicated **`Direct Valve Based`** adapter (`0–100 %` valve actuator, `25 %` emergency opening on total sensor loss), or writes your room temperature to `external_temperature` when used in **`No Calibration`** mode with Shelly's own thermostat enabled. See dedicated setup rules below. |
 | **`SHTRV-01`** | **Shelly TRV (Gen1 Wi-Fi)** | Prevents `4.0 °C` minimum-setpoint writes from unintentionally reporting back as the user turning the thermostat `off` (floors active closing writes one `0.5 °C` step above `4.0 °C`). |
 | **`SPZB0001`** | **Eurotronic Spirit Zigbee** | Supports **`Direct Valve Based`** (`0–100 %`) and safely clamps **`Offset Based`** writes to the hardware's `±5.0 °C` limit. |
-| **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode (`Multilevel Switch`) when **`Direct Valve Based`** is selected, and supports Z-Wave parameter 8 (`0.1 °C` tenths of a degree, skipping reserved `-128`) for **`Offset Based`** calibration once enabled in Home Assistant. |
-| **`COZB0001`** | **Eurotronic Comet Zigbee** | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
-| **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs** | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
-| **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** | Adapts temperature ranges and dual-setpoint climate handling. |
+| **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode (`Multilevel Switch`) when **`Direct Valve Based`** is selected, and supports Z-Wave parameter 8 (`0.1 °C` tenths of a degree, skipping reserved `-128`) for **`Offset Based`** calibration once enabled in Home Assistant. When parameter 8 is set to `-128` and **`No Calibration`** is selected, reports your room temperature to the TRV (see [Room temperature written to the TRV](#room-temperature-written-to-the-trv)). |
+| **`COZB0001`** | **Eurotronic Comet Zigbee** (also when it reports `SPZB0001`, as under ZHA: Better Thermostat recognizes it by its IEEE address) | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
+| **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs, Nous `H1Z`** (through ZHA they report `TS0601`; Better Thermostat recognizes them by their manufacturer string) | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
+| **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** (ZHA: `RBSH-RTH0-BAT-ZB-EU` / `RBSH-RTH0-ZB-EU`) | Adapts temperature ranges and dual-setpoint climate handling. |
 | **`ME167`** | **Avatto Zigbee TRV** | Verified offset passthrough and state synchronization. |
-| **`BHT-002-GCLZB`** | **Moes / Beca Wall Thermostat** | Sanitizes erroneous `±1e6` floating-point calibration values sometimes published via Zigbee2MQTT. |
-| **`TS0601` / `TS0601_thermostat` / `TV02-Zigbee`** | **Tuya / Moes / TuYa OEM Zigbee TRVs** | Direction-aware offset rounding and mode handling for quirky Tuya cluster implementations. |
+| **`BHT-002-GCLZB`** | **Moes / Beca Wall Thermostat** (Zigbee2MQTT: `BHT-002`, `BHT-002/BHT-006`) | Sanitizes erroneous `±1e6` floating-point calibration values sometimes published via Zigbee2MQTT. |
+| **`TS0601` / `TS0601_thermostat` / `TV02-Zigbee`** | **Tuya / Moes / TuYa OEM Zigbee TRVs**, with the Zigbee2MQTT white labels Immax `07732L`, Emos `P5630S`, THALEOS `HY368` (`TS0601_thermostat`) and Moes `ZTRV-ZX-TV01-MS` / `TV01-ZB` / `ZTRV-ZX-TV02`, AlecoAir `HA-08_THERMO`, GIEX `TV06`, EKF `ETT-8` (`TV02-Zigbee`) | Direction-aware offset rounding and mode handling for quirky Tuya cluster implementations. |
 | **`Heater` (TermoWeb)** | **TermoWeb Electric Radiators (`ha-termoweb`)** | Automatically inverts the temperature offset sign (`+1 K` offset lowers reported reading by `1 K` on TermoWeb hardware). |
 
 :::caution[Community notes on tricky budget TRV firmware]
@@ -74,23 +74,23 @@ Missing a quirk for your TRV model? [Open a GitHub issue](https://github.com/Kar
 
 Models with dedicated built-in handling in Better Thermostat:
 
-- `014G2461` (Danfoss Ally, also Danfoss `014G2463`, Popp `701721` and Hive `UK7004240`)
-- `BHT-002-GCLZB`
-- `BTH-RM`
-- `BTH-RM230Z`
-- `COZB0001` (Eurotronic Comet Zigbee)
+- `014G2461` (Danfoss Ally, also Danfoss `014G2463`, Popp `701721` and Hive `UK7004240`; through ZHA `eTRV0100`, `eTRV0101`, `eTRV0103`, `eT093WRO`, `eT093WRG`, `TRV001` and `TRV003`)
+- `BHT-002-GCLZB` (Zigbee2MQTT names it `BHT-002`, or `BHT-002/BHT-006`)
+- `BTH-RM` (through ZHA `RBSH-RTH0-BAT-ZB-EU`)
+- `BTH-RM230Z` (through ZHA `RBSH-RTH0-ZB-EU`)
+- `COZB0001` (Eurotronic Comet Zigbee, also when it reports `SPZB0001`)
 - `Heater` (TermoWeb electric radiator, through the `ha-termoweb` integration)
 - `ME167` (Avatto)
-- `SEA801-Zigbee` / `SEA802-Zigbee`
+- `SEA801-Zigbee` / `SEA802-Zigbee` (also Nous `H1Z`)
 - `SBTR-001AEU` (Shelly BLU TRV)
 - `SHTRV-01` (Shelly TRV, Gen1)
 - `SPZB0001` (Eurotronic Spirit Zigbee)
 - `SRTS-A01` (Aqara Smart Radiator Thermostat E1)
 - `TRV-ZBT` (Sonoff TRV-ZBT)
 - `TRVZB` (Sonoff TRVZB)
-- `TS0601`
-- `TS0601_thermostat`
-- `TV02-Zigbee`
+- `TS0601` (through ZHA: a Saswell SEA801/SEA802 head gets its handling, every other Tuya TRV passes its calibration through unchanged)
+- `TS0601_thermostat` (also Immax `07732L`, Emos `P5630S`, THALEOS `HY368`)
+- `TV02-Zigbee` (also Moes `ZTRV-ZX-TV01-MS`, `TV01-ZB` and `ZTRV-ZX-TV02`, AlecoAir `HA-08_THERMO`, GIEX `TV06`, EKF `ETT-8`)
 - `ZWA021` (Eurotronic Spirit Z / Aeotec ZWA021, Z-Wave)
 
 ---
@@ -100,9 +100,10 @@ Models with dedicated built-in handling in Better Thermostat:
 Some TRVs can regulate on a room temperature sent to them instead of their own sensor. For these models Better Thermostat writes its room temperature to the device:
 
 - **Sonoff TRVZB and TRV-ZBT** (Zigbee2MQTT): to `external_temperature_input`, and switches the device's temperature sensor selection to it. A TRVZB paired through ZHA gets it in `external_temperature_sensor_value`, and its `external_temperature_sensor` switch is turned on. With the TRV's advanced option **Keep the TRV's sensor selection** on, the value is still written but the selection and the switch stay as you set them, for example on `local_temperature` so that each TRV regulates on its own sensor (see [Configuration](/configuration/#second-step)).
-- **Aqara SRTS-A01 (Smart Radiator Thermostat E1)** (Zigbee2MQTT): writes the room temperature to `external_temperature_input` and switches the device's `sensor` selector to `external` while Better Thermostat is in normal (`optimal`) control. Because the SRTS-A01 does not time out an external reading on its own, Better Thermostat automatically switches `sensor` back to `internal` whenever the room sensor enters `sensor_fallback` or `hold` (unless **Keep the TRV's sensor selection** is turned on).
-- **Danfoss Ally, Popp 701721, Hive UK7004240** (Zigbee2MQTT): to `external_measured_room_sensor`, in hundredths of a degree Celsius as Zigbee2MQTT expects, but only with the calibration mode **No Calibration**. The device corrects for its own sensor itself once it has the room temperature, so any other calibration mode would correct the same bias a second time. A change of at least 0.1 °C is written at once. An unchanged value goes out again with Better Thermostat's 30-minute refresh, which stays within the time after which the device drops the value and returns to its own sensor: 3 hours, or 35 minutes with `radiator_covered` on. Better Thermostat does not change `radiator_covered`; set it to match how the radiator is mounted. Open windows are not reported through `window_open_external`, and `heat_available` is not used.
+- **Aqara SRTS-A01 (Smart Radiator Thermostat E1)** (Zigbee2MQTT): writes the room temperature to `external_temperature_input` and switches the device's `sensor` selector to `external` while Better Thermostat is in normal (`optimal`) control. Because the SRTS-A01 does not time out an external reading on its own, Better Thermostat automatically switches `sensor` back to `internal` whenever the room sensor enters `sensor_fallback` or `hold` (unless **Keep the TRV's sensor selection** is turned on). If the configured room sensor belongs to the SRTS-A01 itself, its reading is not written back and Better Thermostat keeps `sensor` on `internal`. With **Keep the TRV's sensor selection** turned on, Better Thermostat leaves the selector alone, so set `sensor` to `internal` yourself.
+- **Danfoss Ally, Popp 701721, Hive UK7004240** (Zigbee2MQTT and ZHA): to `external_measured_room_sensor`, in hundredths of a degree Celsius as Zigbee2MQTT expects, but only with the calibration mode **No Calibration**. The device corrects for its own sensor itself once it has the room temperature, so any other calibration mode would correct the same bias a second time. A change of at least 0.1 °C is written at once. An unchanged value goes out again with Better Thermostat's 30-minute refresh, which stays within the time after which the device drops the value and returns to its own sensor: 3 hours, or 35 minutes with `radiator_covered` on. Better Thermostat does not change `radiator_covered`; set it to match how the radiator is mounted. Through ZHA the input is the number **External temperature sensor** (`external_temperature_sensor`), which takes degrees Celsius, and `radiator_covered` is the switch **Prioritize external temperature sensor**. Open windows are not reported through `window_open_external`, and `heat_available` is not used.
 - **Shelly BLU TRV** (SBTR-001AEU, Home Assistant's Shelly integration): to its **External temperature** number (`external_temperature`), but only with the calibration mode **No Calibration** and not under **Direct Valve Based** control, for the same reason as the Danfoss Ally: the TRV corrects for its own sensor once it has the room temperature, and under direct valve control its own thermostat is off. Only readings Better Thermostat accepts are written; its sensor filter can hold a small or flickering change back for a while. An accepted change of at least 0.1 °C is written at once. An unchanged value goes out again with the first accepted reading or 30-minute refresh that comes at least 5 minutes after the last write, so two writes stay less than 35 minutes apart. If the number is missing or disabled, a warning is logged once.
+- **Eurotronic Spirit Z / Aeotec ZWA021** (Z-Wave JS): as a Sensor Multilevel air temperature report (command class 49), but only while three things hold: the calibration mode is **No Calibration**, the calibration type is not **Direct Valve Based**, and the TRV's temperature offset (configuration parameter 8) holds its reserved value `-128` (*External temperature sensor*). Better Thermostat never writes that value itself: Home Assistant creates the offset entity disabled, so enable it and set it to `-128`. A TRV added after that gets **No Calibration** preselected in setup; for a TRV already in Better Thermostat, choose **No Calibration** in its options. A changed value is reported at once; an unchanged value goes out again with the first reading or 30-minute refresh that comes at least 15 minutes after the last report.
 
 No value is written while the room sensor gives no reading, or when the room sensor belongs to the TRV itself.
 

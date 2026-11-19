@@ -1132,6 +1132,7 @@ class TestControlTrvAvailablePath:
             }
 
             await control_trv(mock_self, "climate.trv1")
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
             await control_trv(mock_self, "climate.trv1")
 
         assert [c.args[2] for c in mock_set_hvac.await_args_list] == [
@@ -2105,6 +2106,191 @@ class TestOffIntentClosesTheValve:
             else:
                 coro.close()
         assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S)]
+
+    def _refusing_valve_room(
+        self, *, window_open=False, call_for_heat=True, bt_hvac_mode=HVACMode.HEAT
+    ):
+        """A direct-valve room whose TRV refuses valve writes until told otherwise."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            room_temperature=18.0,
+            heat_target_temperature=22.0,
+            window_open=window_open,
+            call_for_heat=call_for_heat,
+            bt_hvac_mode=bt_hvac_mode,
+            real_trvs={
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
+                )
+            },
+        )
+        mock_self.last_user_change_monotonic = None
+        return mock_self, mock_self.real_trvs["climate.trv1"]
+
+    async def _valve_cycle(self, mock_self, valve, percent):
+        """Run one control cycle commanding ``percent``; return the retry delays.
+
+        ``valve`` is the fake valve write; it records each attempt.
+        """
+        captured: list[tuple[Coroutine[object, object, object], str | None]] = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+        mock_self.real_trvs["climate.trv1"].budget_retry = None
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                f"{_CTRL}._get_valve_control",
+                return_value=({"valve_percent": percent}, "test"),
+            ),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=valve),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+        delays: list[float] = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, name in captured:
+            if "budget_retry" in (name or ""):
+                with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                    await coro
+            else:
+                coro.close()
+        return delays
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("percent", [0, 40], ids=["close", "opening"])
+    async def test_refused_valve_writes_back_off_until_the_device_takes_one(
+        self, percent
+    ):
+        """Each refused valve write waits twice as long as the one before.
+
+        A cycle inside the wait writes nothing and queues its retry for when
+        the wait ends. The first write the device takes ends the run, and the
+        next refusal starts a new one at the normal write interval.
+        """
+        mock_self, trv = self._refusing_valve_room()
+        refusing = True
+        writes: list[float] = []
+
+        async def valve(*args, **kwargs):
+            writes.append(mock_self.clock.monotonic())
+            return not refusing
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, percent)]
+        for _ in range(5):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, percent))
+        assert retry_delays == [
+            [pytest.approx(30.0)],
+            [pytest.approx(60.0)],
+            [pytest.approx(120.0)],
+            [pytest.approx(240.0)],
+            [pytest.approx(300.0)],
+            [pytest.approx(300.0)],
+        ]
+        assert len(writes) == 6
+
+        mock_self.clock.advance(100.0)
+        assert await self._valve_cycle(mock_self, valve, percent) == [
+            pytest.approx(200.0)
+        ]
+        assert len(writes) == 6
+
+        refusing = False
+        mock_self.clock.advance(200.0)
+        await self._valve_cycle(mock_self, valve, percent)
+        assert len(writes) == 7
+        assert trv.refused_valve_writes == 0
+
+        refusing = True
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+        assert await self._valve_cycle(mock_self, valve, 70) == [pytest.approx(30.0)]
+        assert len(writes) == 8
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "room",
+        [{"window_open": True}, {"bt_hvac_mode": HVACMode.OFF}],
+        ids=["open_window", "room_off"],
+    )
+    async def test_a_refused_safety_close_is_repeated_at_the_normal_pace(self, room):
+        """The close of an open window or of a room switched off keeps its wait.
+
+        The head would otherwise stay open for minutes into an open window or
+        in a room the user switched off.
+        """
+        mock_self, _trv = self._refusing_valve_room(**room)
+
+        async def valve(*args, **kwargs):
+            return False
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, 0)]
+        for _ in range(3):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, 0))
+        assert retry_delays == [[pytest.approx(MIN_WRITE_INTERVAL_S)]] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_refused_close_for_no_heat_demand_backs_off(self):
+        """A close because nothing calls for heat is no safety close.
+
+        It backs off like any other refused valve write.
+        """
+        mock_self, _trv = self._refusing_valve_room(call_for_heat=False)
+
+        async def valve(*args, **kwargs):
+            return False
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, 0)]
+        for _ in range(2):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, 0))
+        assert retry_delays == [
+            [pytest.approx(30.0)],
+            [pytest.approx(60.0)],
+            [pytest.approx(120.0)],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_is_not_held_by_a_refusal_run(self):
+        """A valve write after a user change waits only the normal write budget."""
+        mock_self, _trv = self._refusing_valve_room()
+        writes: list[float] = []
+
+        async def valve(*args, **kwargs):
+            writes.append(mock_self.clock.monotonic())
+            return False
+
+        for _ in range(2):
+            await self._valve_cycle(mock_self, valve, 40)
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S * 4)
+        assert await self._valve_cycle(mock_self, valve, 40) == [
+            pytest.approx(MIN_WRITE_INTERVAL_S * 4)
+        ]
+        assert len(writes) == 3
+        mock_self.clock.advance(1.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+        await self._valve_cycle(mock_self, valve, 60)
+        assert len(writes) == 4
 
     @pytest.mark.asyncio
     async def test_no_heat_call_closes_valve_during_boost(self):
@@ -4865,6 +5051,196 @@ class TestPressesDuringACycle:
 
         mock_set_hvac.assert_called_once()
         assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
+
+
+# ---------------------------------------------------------------------------
+# Mode write pacing
+# ---------------------------------------------------------------------------
+
+
+class TestModeWritePacing:
+    """A mode the device has not taken is written again at the channel's pace.
+
+    The device below reports OFF and refuses every mode written to it, so
+    each cycle finds it off the mode the room wants.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _close_unrun_retries(self):
+        """Close the budget retries a test leaves without running them."""
+        self._retries = []
+        yield
+        for coro, _name in self._retries:
+            coro.close()
+
+    def _room(self, *, homematicip, reported=HVACMode.OFF, **room):
+        trv = _paced_trv("climate.trv1", homematicip=homematicip)
+        trv.last_hvac_mode = reported
+        trv.hvac_mode = reported
+        mock_self = _make_mock_self(
+            trv_state=reported,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": trv},
+            **room,
+        )
+        retries = self._retries
+
+        def _capture(coro, name=None, **kwargs):
+            if (name or "").startswith("bt_budget_retry_"):
+                retries.append((coro, name))
+            else:
+                coro.close()
+            return Mock()
+
+        mock_self.task_manager = Mock(create_task=Mock(side_effect=_capture))
+        mock_self.last_user_change_monotonic = None
+        return mock_self, trv
+
+    async def _cycle(self, mock_self, mode, *, accepted=False):
+        """Run one control cycle asking for ``mode``; return the modes sent."""
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["set_hvac_mode"], autospec=True, return_value=accepted
+            ) as mock_set_hvac,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {"temperature": 20.0, "system_mode": mode}
+            await control_trv(mock_self, "climate.trv1")
+        return [c.args[2] for c in mock_set_hvac.await_args_list]
+
+    async def _retry_delays(self):
+        """Run the queued budget retries; return how long each waits."""
+        delays = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, _name in self._retries:
+            with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                await coro
+        self._retries.clear()
+        return delays
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("homematicip", "interval"),
+        [
+            pytest.param(False, MIN_WRITE_INTERVAL_S, id="plain"),
+            pytest.param(True, HOMEMATICIP_MIN_WRITE_INTERVAL_S, id="homematicip"),
+        ],
+    )
+    async def test_a_refused_mode_waits_for_the_write_budget(
+        self, homematicip, interval
+    ):
+        """The mode is written again once the channel's interval has passed.
+
+        The cycle inside the interval writes nothing and queues the retry
+        that wakes when the interval opens.
+        """
+        mock_self, _trv = self._room(homematicip=homematicip)
+
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+        mock_self.clock.advance(interval - 10.0)
+        assert await self._cycle(mock_self, HVACMode.HEAT) == []
+        assert await self._retry_delays() == [pytest.approx(10.0)]
+
+        mock_self.clock.advance(10.0)
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_another_mode_goes_out_at_once(self):
+        """A mode other than the one last sent is no repeat and is not held."""
+        mock_self, _trv = self._room(homematicip=True)
+        mock_self.real_trvs["climate.trv1"].last_hvac_mode = HVACMode.HEAT
+        mock_self.hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 20.0}
+        )
+
+        assert await self._cycle(mock_self, HVACMode.OFF) == [HVACMode.OFF]
+        mock_self.real_trvs["climate.trv1"].last_hvac_mode = HVACMode.OFF
+        mock_self.hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.OFF, {"temperature": 20.0}
+        )
+        mock_self.clock.advance(1.0)
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_a_mode_the_device_took_and_left_goes_out_at_once(self):
+        """A device seen holding the mode sent diverges anew when it leaves it."""
+        mock_self, trv = self._room(homematicip=True)
+
+        assert await self._cycle(mock_self, HVACMode.HEAT, accepted=True) == [
+            HVACMode.HEAT
+        ]
+        trv.last_hvac_mode_sent = None
+        trv.system_mode_received = True
+        mock_self.clock.advance(1.0)
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_reaches_a_homematicip_head_at_the_normal_pace(self):
+        """After a user change the head's own interval does not hold the mode."""
+        mock_self, _trv = self._room(homematicip=True)
+
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+        await self._retry_delays()
+
+    @pytest.mark.asyncio
+    async def test_an_open_window_repeats_off_at_the_normal_pace_on_homematicip(self):
+        """The OFF of an open window waits the normal spacing, not the head's.
+
+        The head refuses OFF and keeps reporting HEAT, so it would heat into
+        the open window for the whole HomematicIP interval.
+        """
+        mock_self, _trv = self._room(
+            homematicip=True, reported=HVACMode.HEAT, window_open=True
+        )
+
+        assert await self._cycle(mock_self, HVACMode.OFF) == [HVACMode.OFF]
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S - 10.0)
+        assert await self._cycle(mock_self, HVACMode.OFF) == []
+        assert await self._retry_delays() == [pytest.approx(10.0)]
+
+        mock_self.clock.advance(10.0)
+        assert await self._cycle(mock_self, HVACMode.OFF) == [HVACMode.OFF]
+        await self._retry_delays()
+
+    @pytest.mark.asyncio
+    async def test_a_device_seen_holding_the_sent_mode_has_taken_it(self):
+        """A cycle that finds the sent mode reported ends the repeat.
+
+        The device's report did not pass the inbound handler, so only the
+        cycle sees that it holds the mode; once it leaves the mode again the
+        next write goes out at once.
+        """
+        mock_self, trv = self._room(homematicip=True)
+
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
+        trv.last_hvac_mode = HVACMode.HEAT
+        mock_self.hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 20.0}
+        )
+        mock_self.clock.advance(1.0)
+        assert await self._cycle(mock_self, HVACMode.HEAT) == []
+        assert trv.last_hvac_mode_sent is None
+
+        trv.last_hvac_mode = HVACMode.OFF
+        mock_self.hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.OFF, {"temperature": 20.0}
+        )
+        mock_self.clock.advance(1.0)
+        assert await self._cycle(mock_self, HVACMode.HEAT) == [HVACMode.HEAT]
 
 
 # ---------------------------------------------------------------------------

@@ -6,11 +6,16 @@ from asyncio import Lock, gather
 import copy
 from dataclasses import dataclass, field
 import logging
+import re
 from typing import TYPE_CHECKING, Final, Literal
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import Platform, UnitOfTemperature
+from homeassistant.const import (
+    Platform,
+    UnitOfTemperature,
+    __version__ as running_home_assistant_version,
+)
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er, issue_registry as ir, service
@@ -33,6 +38,7 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY_AFTER,
     DOMAIN,
     GENERIC_MODEL,
+    MIN_HOME_ASSISTANT_VERSION,
     NORMALIZED_ID_NAMES,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
@@ -109,12 +115,61 @@ _ENTITY_SERVICES: tuple[tuple[str, str, VolDictType | VolSchemaType], ...] = (
 )
 
 
+UNSUPPORTED_HOME_ASSISTANT_ISSUE: Final = "unsupported_home_assistant"
+
+
+def _release(version: str) -> tuple[int, ...]:
+    """Return year, month and patch of a Home Assistant version.
+
+    A beta or a development build of a release counts as that release, so
+    ``2026.11.0b0`` meets a floor of ``2026.11.0``.
+    """
+    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+def _runs_on_a_supported_home_assistant(hass: HomeAssistant) -> bool:
+    """Return whether Home Assistant is at least the release the code needs.
+
+    ``hacs.json`` keeps HACS from offering the integration to an older core,
+    but Home Assistant itself does not check it. On an older core the
+    climate platform fails while the switches and numbers still load, so the
+    thermostats disappear without a word. Below the floor nothing is set up,
+    and a repair issue names the release to update to.
+    """
+    if _release(running_home_assistant_version) >= _release(MIN_HOME_ASSISTANT_VERSION):
+        return True
+    _LOGGER.error(
+        "better_thermostat: requires Home Assistant %s or newer, this is %s; "
+        "update Home Assistant",
+        MIN_HOME_ASSISTANT_VERSION,
+        running_home_assistant_version,
+    )
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        UNSUPPORTED_HOME_ASSISTANT_ISSUE,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="unsupported_home_assistant",
+        learn_more_url="https://better-thermostat.org/setup/getting-started",
+        translation_placeholders={
+            "required": MIN_HOME_ASSISTANT_VERSION,
+            "running": running_home_assistant_version,
+        },
+    )
+    return False
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up this integration using YAML and register its services.
 
     The services are registered here rather than with each entry, so they
-    exist, and validate, while no thermostat is set up.
+    exist, and validate, while no thermostat is set up. On a Home Assistant
+    older than the integration needs, nothing is set up.
     """
+    if not _runs_on_a_supported_home_assistant(hass):
+        return False
     for name, method, schema in _ENTITY_SERVICES:
         service.async_register_platform_entity_service(
             hass, DOMAIN, name, entity_domain=CLIMATE_DOMAIN, func=method, schema=schema

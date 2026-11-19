@@ -151,13 +151,17 @@ range, but it watches for that. A cycle continues a run of such cycles
 and the reported offset both lie within one offset step of the same limit
 of the range the hull clamps to, and the correction the gap between room
 temperature and TRV reading asks for (the gap plus the offset held, or the
-negated gap for a TRV that shifts its setpoint) lies more than a step past
-that limit. A calibration mode or overheating protection that holds the
-offset at a limit on a TRV that applies it leaves that correction inside
-the range. A run that lasts an hour gives the TRV a
-`calibration_offset_at_limit` repair issue and logs one warning; a cycle
-that finds any of the three otherwise ends the run and takes the issue
-back. The run comes off the TRV at the start of every `control_trv` call
+negated gap for a TRV that shifts its setpoint) lies no more than a step
+inside that limit. The cycle counts as past when that correction lies more
+than a step past the limit. A calibration mode or overheating protection
+that holds the offset at a limit on a TRV that applies it leaves that
+correction inside the range. A run that lasts an hour with at least half of
+its cycles past gives the TRV a `calibration_offset_at_limit` repair issue
+and logs one warning; a cycle that finds either offset off the limit, or the
+correction inside the range, ends the run and takes the issue back. A cycle
+whose correction lies within a step of the limit, as on a TRV that ignores
+its offset while the room is about as warm as its reading, neither ends the
+run nor counts as past. The run comes off the TRV at the start of every `control_trv` call
 and goes back only through the offset block, so a cycle that returns early
 or follows no offset ends it, and a raised issue stays in place. An offset
 entity that is unavailable or unknown counts as no report.

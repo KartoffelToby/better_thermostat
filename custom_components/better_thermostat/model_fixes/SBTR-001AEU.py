@@ -226,6 +226,7 @@ async def maybe_set_external_temperature(
     """
     try:
         trv = self.real_trvs[entity_id]
+        forgotten_before = trv.external_temperature_writes_forgotten
         if (
             configured_calibration_output(trv.advanced)
             is CalibrationOutput.DIRECT_VALVE_BASED
@@ -324,8 +325,9 @@ async def maybe_set_external_temperature(
             blocking=True,
             context=self.context,
         )
-        trv.extra["_shelly_blu_external_temperature_celsius"] = written_celsius
-        trv.extra["_shelly_blu_external_temperature_written_at"] = now
+        if trv.external_temperature_writes_forgotten == forgotten_before:
+            trv.extra["_shelly_blu_external_temperature_celsius"] = written_celsius
+            trv.extra["_shelly_blu_external_temperature_written_at"] = now
         _LOGGER.debug(
             "better_thermostat %s: set Shelly BLU TRV external_temperature=%s on %s (for %s)",
             self.device_name,

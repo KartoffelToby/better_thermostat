@@ -18,7 +18,7 @@ from importlib import import_module
 
 import pytest
 
-from custom_components.better_thermostat.model_fixes import TS0601, TS0601_thermostat
+from custom_components.better_thermostat.model_fixes import TS0601_thermostat
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
@@ -36,9 +36,10 @@ SEA801 = import_module(
 
 ENTITY_ID = "climate.trv"
 
-# The three modules that share one shape: compare, nudge conditionally,
-# and otherwise return the offset unchanged.
-CONDITIONAL_NUDGE_QUIRKS = [TS0601, TS0601_thermostat, SEA801]
+# The two modules that share one shape: compare, nudge conditionally, and
+# otherwise return the offset unchanged. TS0601 hands a Saswell head on to
+# SEA801 and passes every other one through.
+CONDITIONAL_NUDGE_QUIRKS = [TS0601_thermostat, SEA801]
 
 
 def _thermostat(room_temperature, heat_target_temperature):
