@@ -3419,10 +3419,9 @@ class TestGroupedTrvCalibration:
         trv.model = "KE100"
         trv.model_quirks = KE100_QUIRK
 
-        mock_trv_state = MagicMock()
-        mock_trv_state.state = "heat"
-        mock_trv_state.attributes = {"temperature": 21.0}
-        mock_bt_grouped.hass.states.get.return_value = mock_trv_state
+        mock_bt_grouped.hass.states.get.return_value = State(
+            entity_id, "heat", {"temperature": 21.0}
+        )
 
         registry = make_entity_registry(
             make_registry_entry(entity_id, platform=platform)
