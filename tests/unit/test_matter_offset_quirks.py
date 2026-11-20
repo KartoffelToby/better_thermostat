@@ -750,7 +750,7 @@ class TestTheKe100IsNotCalibratedByOffsetOverMatterOnly:
     async def test_the_initialisation_settles_the_answer_on_an_unchanged_model(
         self, monkeypatch
     ):
-        """The answer is asked again even when the model stays the same."""
+        """A model refresh sets the offset answer from the model's quirks, not the stale record."""
         bt = _host(monkeypatch, _w600(), KE100, model="KE100", platform="matter")
         trv = bt.real_trvs[ENTITY_ID]
         trv.calibration_offset_ignored = False
