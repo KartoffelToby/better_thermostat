@@ -183,6 +183,7 @@ async def _setup_algorithm_sensors(
                 BetterThermostatMpcV2VirtualTempSensor(bt_climate),
                 BetterThermostatMpcV2CouplingSensor(bt_climate),
                 BetterThermostatMpcV2DisturbanceSensor(bt_climate),
+                BetterThermostatMpcV2PredictedDisturbanceSensor(bt_climate),
                 BetterThermostatMpcV2RoomTimeConstantSensor(bt_climate),
             ],
         )
@@ -725,7 +726,11 @@ class _BtSensorBase(SensorEntity):
 
 type MpcSensorKey = Literal["mpc_virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"]
 type MpcV2SensorKey = Literal[
-    "T_room_hat", "coupling_rad_room", "D_hat_K_per_min", "tau_room_min"
+    "T_room_hat",
+    "coupling_rad_room",
+    "D_hat_K_per_min",
+    "tau_room_min",
+    "predicted_disturbance_kelvin_per_min",
 ]
 type PidSensorKey = Literal["u", "e_K"]
 
@@ -1029,6 +1034,16 @@ class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
     _v2_debug_key = "D_hat_K_per_min"
     _unique_id_suffix = "mpc_v2_disturbance"
     _shared_unique_id_suffix = "mpc_loss"
+
+
+class BetterThermostatMpcV2PredictedDisturbanceSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 predicted exogenous heat gain."""
+
+    _attr_translation_key = "mpc_v2_predicted_disturbance"
+    _attr_native_unit_of_measurement = "K/min"
+    _v2_debug_key = "predicted_disturbance_kelvin_per_min"
+    _unique_id_suffix = "mpc_v2_predicted_disturbance"
+    _shared_unique_id_suffix = "mpc_v2_predicted_disturbance"
 
 
 class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):

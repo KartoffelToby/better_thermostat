@@ -18,6 +18,10 @@ from custom_components.better_thermostat import (
     number as number_platform,
     switch as switch_platform,
 )
+from custom_components.better_thermostat.binary_sensor import (
+    BetterThermostatHeatLossBinarySensor,
+    BetterThermostatHeatSourceBinarySensor,
+)
 from custom_components.better_thermostat.number import (
     BetterThermostatPIDNumber,
     BetterThermostatPresetCoolNumber,
@@ -33,6 +37,7 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcLossSensor,
     BetterThermostatMpcV2CouplingSensor,
     BetterThermostatMpcV2DisturbanceSensor,
+    BetterThermostatMpcV2PredictedDisturbanceSensor,
     BetterThermostatMpcV2RoomTimeConstantSensor,
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
@@ -106,9 +111,15 @@ def _bt_climate() -> ThermostatStandIn:
         (BetterThermostatMpcV2VirtualTempSensor, "bt_1_mpc_v2_virtual_temp"),
         (BetterThermostatMpcV2CouplingSensor, "bt_1_mpc_v2_coupling"),
         (BetterThermostatMpcV2DisturbanceSensor, "bt_1_mpc_v2_disturbance"),
+        (
+            BetterThermostatMpcV2PredictedDisturbanceSensor,
+            "bt_1_mpc_v2_predicted_disturbance",
+        ),
         (BetterThermostatMpcV2RoomTimeConstantSensor, "bt_1_mpc_v2_room_time_constant"),
         (BetterThermostatPidOutputSensor, "bt_1_pid_output"),
         (BetterThermostatPidErrorSensor, "bt_1_pid_error"),
+        (BetterThermostatHeatSourceBinarySensor, "bt_1_heat_source_detected"),
+        (BetterThermostatHeatLossBinarySensor, "bt_1_heat_loss_detected"),
     ],
 )
 def test_entity_unique_id_is_spelled_as_registered(entity, expected):

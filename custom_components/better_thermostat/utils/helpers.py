@@ -134,6 +134,16 @@ class ReleaseHost(Protocol):
         ...
 
 
+def room_option_source(real_trvs: Mapping[str, object]) -> str:
+    """Return the TRV a room with several TRVs reads its shared options from.
+
+    The TRVs of such a room plan on one shared controller, which has to read
+    options such as the MPC v2 room size from one TRV, the same on every
+    cycle: the one whose entity ID sorts first.
+    """
+    return min(real_trvs)
+
+
 def device_released(host: ReleaseHost, entity_id: str | None) -> bool:
     """Return whether Better Thermostat leaves the device ``entity_id`` alone.
 

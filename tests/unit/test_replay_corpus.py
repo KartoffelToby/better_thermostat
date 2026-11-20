@@ -19,6 +19,11 @@ from pathlib import Path
 import pytest
 
 from custom_components.better_thermostat.core.decide import KernelState, decide
+from custom_components.better_thermostat.core.fsm.anomaly import (
+    AnomalyState,
+    FaultPhase,
+    FaultSlot,
+)
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
@@ -38,6 +43,8 @@ from custom_components.better_thermostat.core.recorder import (
 )
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
+    ObserverReading,
+    ThermalEvidence,
     TrvReported,
     WorldSnapshot,
 )
@@ -140,6 +147,54 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
                 control_mode=ControlModeState(
                     mode=ControlMode.SENSOR_FALLBACK, degraded_since=700.0
                 )
+            ),
+        ),
+        "anomaly_rapid_loss": (
+            make_snapshot(
+                temperature_slope=-0.08,
+                thermal_evidence=ThermalEvidence(
+                    observer=ObserverReading(
+                        age_seconds=30.0,
+                        normalised_innovation=-3.8,
+                        disturbance_kelvin_per_min=-0.04,
+                        disturbance_at_bound=True,
+                        room_time_constant_minutes=90.0,
+                        disturbance_baseline_kelvin_per_min=0.0,
+                    )
+                ),
+            ),
+            make_state(
+                anomaly_detection=True,
+                anomaly=AnomalyState(
+                    rapid_loss=FaultSlot(phase=FaultPhase.SUSPECT, since=800.0)
+                ),
+            ),
+        ),
+        "anomaly_no_heat": (
+            make_snapshot(
+                room_temperature=18.5,
+                room_temperature_filtered=18.5,
+                temperature_slope=-0.005,
+                trvs={
+                    "climate.trv1": TrvReported(
+                        entity_id="climate.trv1",
+                        valve_percent=85.0,
+                        raw_temperature=18.8,
+                        raw_temperature_slope_kelvin_per_min=0.0,
+                    ),
+                    "climate.trv2": TrvReported(
+                        entity_id="climate.trv2",
+                        valve_percent=85.0,
+                        raw_temperature=18.9,
+                        raw_temperature_slope_kelvin_per_min=0.0,
+                    ),
+                },
+            ),
+            make_state(
+                anomaly_detection=True,
+                anomaly=AnomalyState(
+                    no_heat_delivery=FaultSlot(phase=FaultPhase.SUSPECT, since=-2000.0)
+                ),
             ),
         ),
     }

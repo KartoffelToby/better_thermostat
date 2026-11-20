@@ -76,6 +76,7 @@ class PidAdapter(ControlCycleGate):
                 key=self._key,
                 inp_room_temperature_filtered=ctx.room_temperature_filtered,
                 state=self._state,
+                learning_paused=ctx.learning_paused,
             )
         finally:
             self._restore_time()

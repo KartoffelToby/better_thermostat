@@ -56,6 +56,11 @@ from custom_components.better_thermostat.core.desired import (
     Suppression,
     TrvDesired,
 )
+from custom_components.better_thermostat.core.fsm.anomaly import (
+    gating_codes as anomaly_gating_codes,
+    next_evaluation_monotonic as anomaly_next_evaluation_monotonic,
+    visible_codes as anomaly_visible_codes,
+)
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.core.safety import (
     clamp as safety_clamp,
@@ -88,6 +93,9 @@ from custom_components.better_thermostat.model_fixes.types import (
 )
 from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
+from custom_components.better_thermostat.utils.anomaly_repairs import (
+    sync_anomaly_repairs_and_actions,
+)
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
     CONF_CHILD_LOCK,
@@ -622,6 +630,62 @@ def _get_valve_control(
     return None, None
 
 
+def _schedule_anomaly_followup(self: BetterThermostat, now_monotonic: float) -> None:
+    """Arm or cancel the anomaly dwell/recovery/liveness follow-up timer."""
+    due_at = (
+        anomaly_next_evaluation_monotonic(
+            self.kernel_state.anomaly,
+            room_time_constant_minutes=(
+                self.anomaly_evidence.room_time_constant_minutes(now_monotonic)
+            ),
+        )
+        if self.kernel_state.anomaly_detection
+        else None
+    )
+    existing_task = self._anomaly_followup_task
+    existing_due = self._anomaly_followup_due
+    if due_at is None:
+        if existing_task is not None and not existing_task.done():
+            existing_task.cancel()
+        self._anomaly_followup_task = None
+        self._anomaly_followup_due = None
+        return
+    if (
+        existing_task is not None
+        and not existing_task.done()
+        and existing_due is not None
+        and existing_due <= due_at + 1e-6
+    ):
+        return
+    if existing_task is not None and not existing_task.done():
+        existing_task.cancel()
+    self._anomaly_followup_task = None
+    self._anomaly_followup_due = None
+    loop = getattr(self.hass, "loop", None) if self.hass is not None else None
+    if (
+        not isinstance(loop, asyncio.AbstractEventLoop)
+        or not loop.is_running()
+        or self.task_manager.closed
+    ):
+        return
+    delay_seconds = max(0.05, due_at - now_monotonic)
+
+    async def _followup() -> None:
+        try:
+            await asyncio.sleep(delay_seconds)
+        except asyncio.CancelledError:
+            return
+        if self._anomaly_followup_due == due_at:
+            self._anomaly_followup_task = None
+            self._anomaly_followup_due = None
+        request_control_cycle(self)
+
+    self._anomaly_followup_due = due_at
+    self._anomaly_followup_task = self.task_manager.create_task(
+        _followup(), name=f"anomaly_followup_{self.device_name}"
+    )
+
+
 def compute_control_cycle(
     self: BetterThermostat, *, record: bool = True, commit: bool = True
 ) -> tuple[WorldSnapshot, DesiredState]:
@@ -640,7 +704,37 @@ def compute_control_cycle(
     desired, post_state = decide(snapshot, pre_state)
     if commit:
         self.kernel_state = post_state
+        if post_state.anomaly_detection and bool(
+            anomaly_gating_codes(post_state.anomaly, snapshot.now_monotonic)
+        ):
+            self.learning_held = True
+        self.anomaly_evidence.commit_cycle(
+            snapshot,
+            post_state.anomaly,
+            anomaly_detection=post_state.anomaly_detection,
+            control_mode=post_state.control_mode.mode,
+            learning_held=self.learning_held,
+            heating_blocked_by=desired.heating_blocked_by,
+            contact_open=bool(snapshot.window_open)
+            or post_state.window.effective_open
+            or post_state.door.effective_open,
+        )
+        _schedule_anomaly_followup(self, snapshot.now_monotonic)
+        sync_anomaly_repairs_and_actions(self, snapshot, pre_state, post_state)
+        block_changed = desired.heating_blocked_by != self.heating_blocked_by
         publish_heating_blocked_by(self, desired)
+        pre_visible = (
+            anomaly_visible_codes(pre_state.anomaly)
+            if pre_state.anomaly_detection
+            else ((), {})
+        )
+        post_visible = (
+            anomaly_visible_codes(post_state.anomaly)
+            if post_state.anomaly_detection
+            else ((), {})
+        )
+        if not block_changed and pre_visible != post_visible and self.hass is not None:
+            self.async_write_ha_state()
     if record:
         self.flight_recorder.record(snapshot, pre_state, desired)
     return snapshot, desired
@@ -1768,6 +1862,17 @@ async def control_queue(self: BetterThermostat) -> None:
                     self.control_cycle_started_monotonic = self.clock.monotonic()
                     pause_changes_before_learners = self.learning_pause_changes
 
+                    # One observation and decision for the whole cycle;
+                    # on failure each TRV falls back to its own cycle.
+                    cycle = None
+                    try:
+                        cycle = compute_control_cycle(self)
+                    except Exception:
+                        _LOGGER.exception(
+                            "better_thermostat %s: ERROR computing control cycle",
+                            self.device_name,
+                        )
+
                     # Calculate heating power once per cycle
                     try:
                         await self.calculate_heating_power()
@@ -1783,17 +1888,6 @@ async def control_queue(self: BetterThermostat) -> None:
                     except Exception:
                         _LOGGER.exception(
                             "better_thermostat %s: ERROR calculating heat loss",
-                            self.device_name,
-                        )
-
-                    # One observation and decision for the whole cycle;
-                    # on failure each TRV falls back to its own cycle.
-                    cycle = None
-                    try:
-                        cycle = compute_control_cycle(self)
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: ERROR computing control cycle",
                             self.device_name,
                         )
 
@@ -1905,6 +1999,15 @@ async def control_queue(self: BetterThermostat) -> None:
                             self.learning_paused
                             or self.devices_released
                             or bool(self.released_trvs)
+                            or (
+                                self.kernel_state.anomaly_detection
+                                and bool(
+                                    anomaly_gating_codes(
+                                        self.kernel_state.anomaly,
+                                        self.clock.monotonic(),
+                                    )
+                                )
+                            )
                         )
 
                     failures: list[tuple[str, BaseException | bool]] = [
@@ -2706,7 +2809,8 @@ async def control_trv(
 
     All operations are executed within self._temperature_lock to ensure atomic execution when
     multiple TRVs are controlled in parallel. Unavailable TRVs are skipped without
-    executing any control operations.
+    executing any control operations, and so is every TRV of a room whose
+    valve exercise started while the cycle was dispatching.
 
     Parameters
     ----------
@@ -2734,6 +2838,13 @@ async def control_trv(
     _suppression_owned = False
     try:
         async with self._temperature_lock:
+            if self.in_maintenance:
+                # A valve exercise started while this TRV waited for the
+                # lock. It owns the devices until it ends, its guard on the
+                # TRV included, so nothing is written or touched here and
+                # the cycle is asked for again afterwards.
+                self._control_needed_after_maintenance = True
+                return True
             self.real_trvs[entity_id].ignore_trv_states = True
             _suppression_owned = True
             # The run of cycles with the offset at its limit continues only

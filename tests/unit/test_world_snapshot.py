@@ -7,22 +7,36 @@ copies each one. A forgotten field would surface here, not deep in M2.
 
 from dataclasses import FrozenInstanceError, fields
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import State
+from homeassistant.helpers import device_registry as dr
 import pytest
 
+from custom_components.better_thermostat.adapters import deconz, delegate, generic, tado
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
+    ObserverReading,
+    ThermalEvidence,
     TrvReported,
     WorldSnapshot,
     parse_hvac_mode,
 )
-from custom_components.better_thermostat.model_fixes import ZWA021
+from custom_components.better_thermostat.model_fixes import COZB0001, ZWA021, Heater
+from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import CalibrationOutput
+from custom_components.better_thermostat.utils.helpers import (
+    REMOTE_SENSING_LOCAL_TEMPERATURE_KEY,
+)
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
-from tests.factories import ThermostatStandIn, trv_record
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 
 def _make_bt() -> MagicMock:
@@ -108,6 +122,8 @@ class TestSnapshotCompleteness:
             "trvs",
             # Raw sensor reading, read straight from hass in the builder.
             "window_open",
+            # Continuous residual and observer evidence, assembled separately.
+            "thermal_evidence",
         }
         all_fields = {f.name for f in fields(WorldSnapshot)}
         assert all_fields == mapped | produced_elsewhere
@@ -197,6 +213,7 @@ class TestTrvReportedBuilding:
             valve_max_opening=80.0,
             min_local_calibration=-7,
             max_local_calibration=7,
+            raw_temperature=21.0,
         )
 
     def test_unavailable_state_marks_trv_unavailable(self):
@@ -287,6 +304,22 @@ class TestWorldSnapshotType:
         with pytest.raises(FrozenInstanceError):
             setattr(trv, field_name, 99.0)
 
+    def test_thermal_evidence_and_observer_reading_are_frozen(self):
+        """ObserverReading and ThermalEvidence fields cannot be reassigned."""
+        observer = ObserverReading(
+            age_seconds=60.0,
+            normalised_innovation=-1.2,
+            disturbance_kelvin_per_min=-0.01,
+            disturbance_at_bound=False,
+            room_time_constant_minutes=120.0,
+            disturbance_baseline_kelvin_per_min=0.0,
+        )
+        evidence = ThermalEvidence(observer=observer)
+        with pytest.raises(FrozenInstanceError):
+            setattr(observer, "age_seconds", 10.0)
+        with pytest.raises(FrozenInstanceError):
+            setattr(evidence, "slope_residual_kelvin_per_min", -0.1)
+
 
 class TestParseHvacMode:
     """parse_hvac_mode maps raw values onto the core vocabulary."""
@@ -350,3 +383,229 @@ class TestReleasedTrvs:
         snapshot = build_snapshot(bt)
         assert set(snapshot.trvs) == {"climate.trv"}
         assert snapshot.trvs["climate.trv"].released is True
+
+
+class TestTrvRawTemperature:
+    """``TrvReported.raw_temperature`` recovers the physical TRV reading across adapters."""
+
+    @staticmethod
+    def _adapter_bt(adapter_module) -> MagicMock:
+        bt = _make_bt()
+        bt.devices_released = False
+        bt.context = None
+        bt.hass.services.async_call = AsyncMock(return_value=None)
+        trv = bt.real_trvs["climate.trv"]
+        trv.adapter = adapter_module
+        trv.calibration = CalibrationOutput.LOCAL_BASED
+        trv.local_temperature_calibration_entity = "number.trv_calibration"
+        states = {
+            "climate.trv": State("climate.trv", "heat"),
+            "number.trv_calibration": State(
+                "number.trv_calibration", "0.0", {"min": -6, "max": 6, "step": 0.1}
+            ),
+        }
+        bt.hass.states.get.side_effect = states.get
+        return bt
+
+    @pytest.mark.parametrize(
+        ("adapter_module", "expected_domain", "expected_wire"),
+        [
+            pytest.param(generic, "number", -4.0, id="generic"),
+            pytest.param(deconz, "deconz", -400, id="deconz"),
+            pytest.param(tado, "tado", -4.0, id="tado"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_local_offset_sign_recovers_physical_temperature_per_adapter(
+        self, adapter_module, expected_domain, expected_wire
+    ):
+        """After an adapter writes a local calibration offset, raw_temperature matches the unshifted sensor."""
+        physical_temperature = 26.4
+        calibration_offset = -4.0
+        bt = self._adapter_bt(adapter_module)
+        registry = make_entity_registry(
+            make_registry_entry("climate.trv"),
+            make_registry_entry("number.trv_calibration"),
+        )
+
+        with patch.object(helpers.er, "async_get", return_value=registry):
+            wrote = await delegate.set_calibration_offset(
+                bt, "climate.trv", calibration_offset
+            )
+
+        assert wrote is True
+        call = bt.hass.services.async_call.await_args
+        assert call is not None
+        assert call.args[0] == expected_domain
+        if expected_domain == "deconz":
+            assert call.args[2]["data"]["offset"] == expected_wire
+        elif expected_domain == "tado":
+            assert call.args[2]["offset"] == expected_wire
+        else:
+            assert call.args[2]["value"] == expected_wire
+
+        # Standard devices add BT's offset to the physical reading they measure.
+        bt.real_trvs["climate.trv"].current_temperature = (
+            physical_temperature + calibration_offset
+        )
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].raw_temperature == pytest.approx(
+            physical_temperature
+        )
+
+    @pytest.mark.asyncio
+    async def test_inverted_offset_quirk_recovers_physical_temperature(self):
+        """TermoWeb heaters subtract the negated wire offset, so raw_temperature still recovers the sensor."""
+        physical_temperature = 26.4
+        calibration_offset = -4.0
+        bt = self._adapter_bt(generic)
+        bt.real_trvs["climate.trv"].model_quirks = Heater
+        registry = make_entity_registry(
+            make_registry_entry("climate.trv", device_id="device_termoweb"),
+            make_registry_entry("number.trv_calibration", device_id="device_termoweb"),
+        )
+        device_registry = MagicMock()
+        device_registry.async_get.return_value = MagicMock(
+            spec=dr.DeviceEntry, manufacturer="TermoWeb"
+        )
+
+        with (
+            patch.object(helpers.er, "async_get", return_value=registry),
+            patch.object(Heater.er, "async_get", return_value=registry),
+            patch.object(Heater.dr, "async_get", return_value=device_registry),
+        ):
+            wrote = await delegate.set_calibration_offset(
+                bt, "climate.trv", calibration_offset
+            )
+            call = bt.hass.services.async_call.await_args
+            assert wrote is True
+            assert call is not None
+            device_wire_offset = call.args[2]["value"]
+            assert device_wire_offset == 4.0
+            # TermoWeb subtracts the wire offset from its physical measurement.
+            bt.real_trvs["climate.trv"].current_temperature = (
+                physical_temperature - device_wire_offset
+            )
+            snapshot = build_snapshot(bt)
+
+        assert snapshot.trvs["climate.trv"].raw_temperature == pytest.approx(
+            physical_temperature
+        )
+
+    def test_setpoint_offset_quirk_keeps_unshifted_reading(self):
+        """COZB0001 shifts its setpoint and reports the bare physical reading."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.calibration = CalibrationOutput.LOCAL_BASED
+        trv.model_quirks = COZB0001
+        trv.current_temperature = 26.4
+        trv.last_calibration = 4.0
+
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].raw_temperature == pytest.approx(26.4)
+
+    @pytest.mark.parametrize(
+        ("remote_sensing", "expected"),
+        [(STATE_ON, None), (STATE_UNAVAILABLE, None), (STATE_OFF, 26.4)],
+    )
+    def test_bound_sensor_trv_omits_raw_temperature_unless_unbound(
+        self, remote_sensing, expected
+    ):
+        """A Matter TRV regulating on a remote room sensor exposes no radiator temperature."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.calibration = CalibrationOutput.LOCAL_BASED
+        trv.current_temperature = 22.4
+        trv.last_calibration = -4.0
+        remote_id = "binary_sensor.trv_remote_sensing"
+        registry = make_entity_registry(
+            make_registry_entry(
+                "climate.trv", platform="matter", device_id="device_matter"
+            ),
+            make_registry_entry(
+                remote_id,
+                platform="matter",
+                device_id="device_matter",
+                translation_key=REMOTE_SENSING_LOCAL_TEMPERATURE_KEY,
+            ),
+        )
+        states = {
+            "climate.trv": State("climate.trv", "heat"),
+            remote_id: State(remote_id, remote_sensing),
+        }
+        bt.hass.states.get.side_effect = states.get
+
+        with patch.object(helpers.er, "async_get", return_value=registry):
+            snapshot = build_snapshot(bt)
+
+        assert snapshot.trvs["climate.trv"].raw_temperature == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        "calibration_output",
+        [
+            None,
+            CalibrationOutput.TARGET_TEMP_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+        ],
+    )
+    def test_non_offset_channels_report_current_temperature_directly(
+        self, calibration_output
+    ):
+        """Setpoint and direct-valve channels leave the TRV's own sensor reading unshifted."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.calibration = calibration_output
+        trv.current_temperature = 24.5
+        trv.last_calibration = -3.0
+
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].raw_temperature == 24.5
+
+    def test_advanced_local_based_fallback_and_non_finite_calibration(self):
+        """``advanced['calibration']`` selects offset recovery when ``trv.calibration`` is unset, and NaN yields None."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.calibration = None
+        trv.advanced = {"calibration": CalibrationOutput.LOCAL_BASED}
+        trv.current_temperature = 21.0
+        trv.last_calibration = -2.5
+        assert build_snapshot(bt).trvs["climate.trv"].raw_temperature == 23.5
+
+        trv.last_calibration = float("nan")
+        assert build_snapshot(bt).trvs["climate.trv"].raw_temperature is None
+
+    def test_snapshot_without_hass_recovers_raw_temperature(self):
+        """An unattached entity with ``hass=None`` marks TRVs unavailable without failing."""
+        bt = _make_bt()
+        bt.hass = None
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].available is False
+        assert snapshot.trvs["climate.trv"].raw_temperature == 21.0
+
+
+class TestTrvValvePercent:
+    """``TrvReported.valve_percent`` prefers reported position and falls back to last write."""
+
+    @pytest.mark.parametrize(
+        ("reported_position", "written_percent", "expected"),
+        [
+            pytest.param(35.0, 80.0, 35.0, id="reported-wins"),
+            pytest.param(None, 65.0, 65.0, id="fallback-to-last-write"),
+            pytest.param(-1.0, 50.0, 50.0, id="negative-reported-falls-back"),
+            pytest.param(105.0, 40.0, 40.0, id="over-100-reported-falls-back"),
+            pytest.param(float("nan"), 25.0, 25.0, id="nan-reported-falls-back"),
+            pytest.param(None, 120.0, None, id="both-invalid"),
+            pytest.param(None, None, None, id="both-absent"),
+        ],
+    )
+    def test_valve_percent_selection(
+        self, reported_position, written_percent, expected
+    ):
+        """Valid openings in ``[0, 100]`` enter the snapshot in priority order."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.valve_position = reported_position
+        trv.last_valve_percent = written_percent
+
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].valve_percent == expected

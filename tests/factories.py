@@ -40,6 +40,9 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.anomaly_evidence import (
+    AnomalyEvidenceTracker,
+)
 from custom_components.better_thermostat.utils.const import (
     GENERIC_MODEL,
     CalibrationMode,
@@ -282,6 +285,9 @@ _CONSTRUCTOR_DEFAULTED = (
     "learning_paused",
     "learning_held",
     "learning_pause_changes",
+    "heat_loss_rate",
+    "_anomaly_followup_due",
+    "_anomaly_followup_task",
     "_cooler_last_sent",
     "_saved_state",
 )
@@ -297,6 +303,7 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
     # thermostat configured without a temperature step and without an
     # availability guard, before Home Assistant assigned it a unique id.
     "flight_recorder": FlightRecorder,
+    "anomaly_evidence": AnomalyEvidenceTracker,
     "task_manager": TaskManager,
     "bt_target_temperature_step": lambda: None,
     "availability_guard_entity_id": lambda: None,

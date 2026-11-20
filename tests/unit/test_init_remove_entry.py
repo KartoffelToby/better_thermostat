@@ -36,8 +36,10 @@ TRV_ENTITY_ID = "climate.fritz_kinderzimmer"
 ENTRY_WIDE_TRANSLATION_KEYS = (
     "invalid_external_temperature",
     "degraded_mode",
+    "heating_supply_failure",
     *(role.issue_translation_key for role in CONTACT_ROLES),
 )
+TRV_TRANSLATION_KEYS = ("missing_entity", "trv_no_heat_response", "valve_leak_detected")
 
 
 def _make_entry(hass, entry_id: str = "abcd1234", **overrides) -> MockConfigEntry:
@@ -58,7 +60,7 @@ def _raise_every_issue(hass, entry_id: str) -> set[str]:
     """Raise every issue the runtime can raise for ``entry_id``; return their ids."""
     issue_ids = {
         entry_issue_id(entry_id, key) for key in ENTRY_WIDE_TRANSLATION_KEYS
-    } | {entry_issue_id(entry_id, "missing_entity", TRV_ENTITY_ID)}
+    } | {entry_issue_id(entry_id, key, TRV_ENTITY_ID) for key in TRV_TRANSLATION_KEYS}
     for issue_id in issue_ids:
         ir.async_create_issue(
             hass,

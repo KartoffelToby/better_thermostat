@@ -20,6 +20,11 @@ from homeassistant.helpers.json import prepare_save_json
 import pytest
 
 from custom_components.better_thermostat.utils import state_manager
+from custom_components.better_thermostat.utils.calibration.disturbance_profile import (
+    ROUTINE_BUCKETS,
+    SOLAR_BUCKETS,
+    DisturbanceProfile,
+)
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     TrvProfile,
@@ -161,6 +166,16 @@ def _populated_state() -> RuntimeState:
                 flow_temperature=40.0,
             ),
             "bt:defaults": MpcV2ReidData(),
+        },
+        disturbance_profile={
+            "bt:full": DisturbanceProfile(
+                routine_gain_kelvin_per_min=(0.004,) * ROUTINE_BUCKETS,
+                solar_gain_kelvin_per_min=(0.02,) * SOLAR_BUCKETS,
+                routine_samples=(3.0,) * ROUTINE_BUCKETS,
+                solar_samples=(5.0,) * SOLAR_BUCKETS,
+                last_learned_ts=1700000017.0,
+            ),
+            "bt:defaults": DisturbanceProfile(),
         },
         pid={
             "bt:full": PIDState(

@@ -556,3 +556,83 @@ def test_a_band_far_from_the_prediction_reads_at_its_nearer_edge(side: float) ->
 
     assert shift == pytest.approx(side * 29.5)
     assert variance == 0.0
+
+
+def test_fresh_reading_exposes_innovation_and_normalised_innovation() -> None:
+    """A fresh reading stores ``y_meas - y_pred``, ``S``, and their ratio."""
+    obs, predicted = _observer_predicting(20.0)
+    y_meas = predicted - 0.6
+
+    obs.update(y_meas, u=0.0, T_outdoor=20.0, dt_s=300.0)
+
+    expected_shift = y_meas - predicted
+    assert obs.last_innovation == pytest.approx(expected_shift)
+    assert obs.last_innovation_variance > obs.params.r_sensor
+    assert obs.normalised_innovation == pytest.approx(
+        expected_shift / math.sqrt(obs.last_innovation_variance)
+    )
+    assert obs.normalised_innovation < -3.0
+
+
+def test_band_reading_exposes_truncated_normal_innovation() -> None:
+    """A repeat reading stores the truncated-normal shift rather than the raw gap."""
+    obs, predicted = _observer_predicting(20.0)
+    reported = predicted + 0.15
+
+    obs.update(reported, u=0.0, T_outdoor=20.0, dt_s=300.0, band_K=0.5)
+
+    expected_shift, _ = KalmanObserver._reading_moments(
+        reported, predicted, obs.last_innovation_variance, 0.5
+    )
+    assert abs(obs.last_innovation) < abs(reported - predicted)
+    assert obs.last_innovation == pytest.approx(expected_shift)
+    assert obs.normalised_innovation == pytest.approx(
+        expected_shift / math.sqrt(obs.last_innovation_variance)
+    )
+
+
+def test_held_disturbance_keeps_updating_innovation_while_disturbance_holds() -> None:
+    """Holding disturbance learning still updates the observation innovation."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = _make_observer(plant)
+    obs.initialise(np.array([20.0, 25.0]))
+    obs.restore_disturbance(-0.01)
+
+    obs.update(18.5, u=0.2, T_outdoor=5.0, dt_s=300.0, learn_disturbance=False)
+
+    assert obs.disturbance_K_per_min == pytest.approx(-0.01)
+    assert obs.unbounded_disturbance_K_per_min == pytest.approx(-0.01)
+    assert obs.last_innovation < -1.0
+    assert obs.normalised_innovation < -3.0
+
+
+def test_unbounded_disturbance_exceeds_bound_when_estimate_saturates() -> None:
+    """The unclipped disturbance records the raw step where ``disturbance_K_per_min`` clamps."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = KalmanObserver(plant, KalmanParams(), disturbance_bound_K_per_min=0.02)
+    obs.initialise(np.array([20.0, 20.0]))
+
+    obs.update(15.0, u=0.0, T_outdoor=20.0, dt_s=300.0)
+
+    assert obs.disturbance_K_per_min == pytest.approx(-0.02)
+    assert obs.unbounded_disturbance_K_per_min < -0.02
+
+
+def test_initialise_and_restore_disturbance_reset_exported_fields() -> None:
+    """Re-seeding clears innovation fields and ``restore_disturbance`` syncs both rates."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = KalmanObserver(plant, KalmanParams(), disturbance_bound_K_per_min=0.05)
+    obs.initialise(np.array([20.0, 20.0]))
+    obs.update(18.0, u=0.0, T_outdoor=20.0, dt_s=300.0)
+    assert obs.last_innovation != 0.0
+    assert obs.unbounded_disturbance_K_per_min != 0.0
+
+    obs.initialise(np.array([21.0, 21.0]))
+    assert obs.last_innovation == 0.0
+    assert obs.last_innovation_variance == 0.0
+    assert obs.normalised_innovation == 0.0
+    assert obs.unbounded_disturbance_K_per_min == 0.0
+
+    obs.restore_disturbance(-0.2)
+    assert obs.disturbance_K_per_min == pytest.approx(-0.05)
+    assert obs.unbounded_disturbance_K_per_min == pytest.approx(-0.05)

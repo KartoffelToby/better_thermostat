@@ -150,6 +150,7 @@ async def async_get_config_entry_diagnostics(
         diagnostics_data["climate"] = _state(hass, bt.entity_id)
         # Flight recorder: the last decision tuples for offline replay.
         diagnostics_data["flight_recorder"] = bt.flight_recorder.export()
+        diagnostics_data["anomaly"] = bt.anomaly_evidence.export()
         # Why the room heats or rests: the damped outdoor temperature and
         # the threshold it was held against.
         if settings.get(CONF_OUTDOOR_SENSOR) or settings.get(CONF_WEATHER):

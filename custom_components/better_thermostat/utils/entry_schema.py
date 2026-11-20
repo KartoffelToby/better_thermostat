@@ -64,6 +64,7 @@ from .const import (
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
+    CONF_PREDICTIVE_DISTURBANCE,
     CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
     CONF_TARGET_TEMP_MAX,
@@ -105,6 +106,7 @@ TrvAdvanced = TypedDict(  # noqa: UP013
         "child_lock": bool,
         "homematicip": bool,
         "keep_sensor_selection": bool,
+        "predictive_disturbance": bool,
         "balance_mode": StoredChoice,
     },
     total=False,
@@ -189,6 +191,7 @@ type _FlagKey = Literal[
     "child_lock",
     "homematicip",
     "keep_sensor_selection",
+    "predictive_disturbance",
 ]
 
 _TEXT_KEYS: Final[tuple[_TextKey, ...]] = (
@@ -227,6 +230,7 @@ _FLAG_KEYS: Final[tuple[_FlagKey, ...]] = (
     CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
     CONF_KEEP_SENSOR_SELECTION,
+    CONF_PREDICTIVE_DISTURBANCE,
 )
 
 

@@ -31,6 +31,9 @@
       "mpc_v2_disturbance": {
         "default": "mdi:thermometer-minus"
       },
+      "mpc_v2_predicted_disturbance": {
+        "default": "mdi:chart-line"
+      },
       "mpc_v2_room_time_constant": {
         "default": "mdi:home-clock-outline"
       },
@@ -39,6 +42,22 @@
       },
       "pid_error": {
         "default": "mdi:thermometer-alert"
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "default": "mdi:fire",
+        "state": {
+          "on": "mdi:fire",
+          "off": "mdi:fire-off"
+        }
+      },
+      "heat_loss_detected": {
+        "default": "mdi:weather-windy",
+        "state": {
+          "on": "mdi:weather-windy",
+          "off": "mdi:weather-windy-variant"
+        }
       }
     },
     "switch": {
@@ -86,6 +105,16 @@
       },
       "window_detection": {
         "default": "mdi:window-open-variant"
+      },
+      "anomaly_detection": {
+        "default": "mdi:shield-search",
+        "state": {
+          "on": "mdi:shield-check",
+          "off": "mdi:shield-off-outline"
+        }
+      },
+      "anomaly_suppression": {
+        "default": "mdi:window-shutter-alert"
       }
     }
   },

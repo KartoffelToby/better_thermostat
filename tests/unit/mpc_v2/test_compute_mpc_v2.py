@@ -116,6 +116,7 @@ def _step_returning(fraction: float):
         u_max: float = 1.0,
         learning_paused: bool = False,
         room_reading_from_trvs: bool = False,
+        predicted_disturbance_K_per_min: tuple[float, ...] = (),
     ) -> tuple[float, MpcV2Diagnostics]:
         _u, diagnostics = real_step(
             self,
@@ -127,6 +128,7 @@ def _step_returning(fraction: float):
             u_max=u_max,
             learning_paused=learning_paused,
             room_reading_from_trvs=room_reading_from_trvs,
+            predicted_disturbance_K_per_min=predicted_disturbance_K_per_min,
         )
         return fraction, diagnostics
 
@@ -1848,3 +1850,48 @@ def test_a_prior_change_after_a_pause_keeps_the_pause() -> None:
     assert state.controller.dob.planning_filtered == pytest.approx(
         planning_before, abs=1e-12
     )
+
+
+def test_diagnostics_report_normalised_innovation_and_unbounded_disturbance() -> None:
+    """Controller diagnostics forward the observer's innovation and unclipped rate."""
+    controller = MpcV2Controller(MpcV2Params())
+    _, first = controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=21.0)
+    assert first.D_hat_K_per_min == pytest.approx(0.0, abs=1e-12)
+    assert first.disturbance_at_bound is False
+
+    _, dropped = controller.step(
+        t_s=1_300.0, T_room=18.0, T_target=21.0, T_outdoor=21.0
+    )
+    assert dropped.normalised_innovation == pytest.approx(
+        controller.kalman.normalised_innovation
+    )
+    assert dropped.normalised_innovation < -3.0
+    assert dropped.unbounded_D_hat_K_per_min == pytest.approx(
+        controller.kalman.unbounded_disturbance_K_per_min
+    )
+    assert dropped.unbounded_D_hat_K_per_min < -controller.dob.bound_K_per_min
+
+
+def test_diagnostics_disturbance_at_bound_tracks_rail() -> None:
+    """``disturbance_at_bound`` is False inside the rail and True once saturated."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=21.0)
+
+    _, interior = controller.step(
+        t_s=1_300.0, T_room=20.9, T_target=21.0, T_outdoor=21.0
+    )
+    assert 0.0 < abs(interior.D_hat_K_per_min) < controller.dob.bound_K_per_min
+    assert interior.disturbance_at_bound is False
+
+    saturated = interior
+    for idx in range(1, 20):
+        _, saturated = controller.step(
+            t_s=1_300.0 + 300.0 * idx,
+            T_room=20.9 - 1.5 * idx,
+            T_target=21.0,
+            T_outdoor=21.0,
+        )
+    assert abs(saturated.D_hat_K_per_min) == pytest.approx(
+        controller.dob.bound_K_per_min
+    )
+    assert saturated.disturbance_at_bound is True

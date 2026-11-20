@@ -29,7 +29,13 @@ from custom_components.better_thermostat.utils.controlling import (
     control_queue,
 )
 from custom_components.better_thermostat.utils.snapshot import _build_trv_reported
-from tests.factories import ThermostatStandIn, make_snapshot, make_state, trv_record
+from tests.factories import (
+    ThermostatStandIn,
+    make_snapshot,
+    make_state,
+    running_kernel_state,
+    trv_record,
+)
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 _QUIRKS = "custom_components.better_thermostat.model_fixes.model_quirks"
@@ -82,6 +88,7 @@ def _make_self() -> ThermostatStandIn:
     entity.heat_target_temperature = 21.0
     entity.cool_target_temperature = None
     entity.bt_hvac_mode = HVACMode.HEAT
+    entity.kernel_state = running_kernel_state()
     entity.clock = FakeClock()
     # The TRV is present, so a cycle that reports it clean did control it.
     entity.hass.states.get.return_value = State(_TRV, "heat")
