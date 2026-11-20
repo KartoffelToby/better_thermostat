@@ -117,7 +117,7 @@ These sensors exist for every device.
 
 ## Binary sensors
 
-These sensors exist for every device. They need the MPC v2 calibration mode: without it nothing measures the room's heat balance, and the sensors stay unavailable.
+These sensors exist only while at least one TRV of the device uses the MPC v2 calibration mode: without it nothing measures the room's heat balance. Switching the last TRV away from MPC v2 removes them, and switching back brings them back.
 
 | Sensor | What it shows |
 | --- | --- |

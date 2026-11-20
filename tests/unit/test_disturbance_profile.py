@@ -202,3 +202,17 @@ def test_an_unusable_stored_profile_starts_from_zero(broken: object) -> None:
         len(rebuilt.routine_gain_kelvin_per_min) == DAY_CATEGORIES * HALF_HOURS_PER_DAY
     )
     assert len(rebuilt.solar_gain_kelvin_per_min) == SEASONS * HALF_HOURS_PER_DAY
+
+
+def test_a_rejected_stored_profile_is_noted_as_poisoned() -> None:
+    """The loader learns of the reset, so it can keep the stored payload."""
+    poisoned: list[str] = []
+
+    DisturbanceProfile.from_mapping(
+        {"routine_gain_kelvin_per_min": [1.0]}, key="room", poisoned=poisoned
+    )
+    DisturbanceProfile.from_mapping(
+        DisturbanceProfile().to_mapping(), key="sound", poisoned=poisoned
+    )
+
+    assert poisoned == ["disturbance_profile:room"]

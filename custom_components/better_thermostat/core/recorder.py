@@ -169,8 +169,9 @@ _MAINTENANCE_PHASE_TAGS: Final[Mapping[type[MaintenanceState], str]] = {
 def _maintenance_asdict(state: MaintenanceState) -> dict[str, _Recordable]:
     """Return the exported form of the maintenance region.
 
-    The phase class is written as a ``phase`` tag, and ``running_since``
-    is present for every phase, ``None`` outside RUNNING.
+    The phase class is written as a ``phase`` tag. ``running_since`` and
+    ``anomaly_run_pending`` are present for every phase: ``None`` outside
+    RUNNING the one, ``False`` in it the other.
 
     Parameters
     ----------
@@ -180,7 +181,8 @@ def _maintenance_asdict(state: MaintenanceState) -> dict[str, _Recordable]:
     Returns
     -------
     dict
-        Mapping with the keys ``phase``, ``next_due`` and ``running_since``.
+        Mapping with the keys ``phase``, ``next_due``, ``running_since``,
+        ``last_anomaly_run_monotonic`` and ``anomaly_run_pending``.
     """
     running_since = (
         state.running_since if isinstance(state, MaintenanceRunning) else None
@@ -190,6 +192,9 @@ def _maintenance_asdict(state: MaintenanceState) -> dict[str, _Recordable]:
         "next_due": state.next_due,
         "running_since": running_since,
         "last_anomaly_run_monotonic": state.last_anomaly_run_monotonic,
+        "anomaly_run_pending": (
+            not isinstance(state, MaintenanceRunning) and state.anomaly_run_pending
+        ),
     }
 
 
@@ -467,14 +472,20 @@ def _maintenance_of(raw: dict[str, Json]) -> MaintenanceState:
         next_due = DUE_AT_FIRST_TICK
     running_since = _float_or_none(raw["running_since"])
     last_anomaly_run_monotonic = _float_or_none(raw.get("last_anomaly_run_monotonic"))
+    # An export taken before a deferred anomaly run was marked carries no flag.
+    anomaly_run_pending = _bool_of(raw.get("anomaly_run_pending", False))
     match phase:
         case "idle":
             return MaintenanceIdle(
-                next_due=next_due, last_anomaly_run_monotonic=last_anomaly_run_monotonic
+                next_due=next_due,
+                last_anomaly_run_monotonic=last_anomaly_run_monotonic,
+                anomaly_run_pending=anomaly_run_pending,
             )
         case "due":
             return MaintenanceDue(
-                next_due=next_due, last_anomaly_run_monotonic=last_anomaly_run_monotonic
+                next_due=next_due,
+                last_anomaly_run_monotonic=last_anomaly_run_monotonic,
+                anomaly_run_pending=anomaly_run_pending,
             )
         case "running" if running_since is not None:
             return MaintenanceRunning(

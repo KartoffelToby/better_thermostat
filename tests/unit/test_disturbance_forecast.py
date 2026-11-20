@@ -39,6 +39,16 @@ def test_cloud_coverage_wins_over_the_condition() -> None:
     assert clear_sky_factor("sunny", 150) == 0.0
 
 
+def test_a_clear_night_admits_no_sun_whatever_the_cloud_coverage() -> None:
+    """Few clouds at night are still no sun.
+
+    A solar gain learned in a bucket while the sun was still up there would
+    otherwise be forecast after sunset under a cloudless night sky.
+    """
+    assert clear_sky_factor("clear-night", 0) == 0.0
+    assert clear_sky_factor("Clear-Night", 10.0) == 0.0
+
+
 def test_unknown_condition_and_coverage_fall_back() -> None:
     assert clear_sky_factor("unknown") == 0.4
     assert clear_sky_factor(None) == 0.4

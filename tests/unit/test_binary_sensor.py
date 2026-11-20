@@ -19,7 +19,11 @@ from custom_components.better_thermostat.entity import FollowsThermostat
 from custom_components.better_thermostat.utils.anomaly_evidence import (
     AnomalyEvidenceTracker,
 )
-from tests.factories import ThermostatStandIn
+from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION_MODE,
+    CalibrationMode,
+)
+from tests.factories import ThermostatStandIn, trv_record
 
 
 def _record(
@@ -46,10 +50,19 @@ def _record(
     )
 
 
-def _climate() -> ThermostatStandIn:
-    """Build a thermostat stand-in that carries the values the sensor reads."""
+def _climate(*modes: CalibrationMode | None) -> ThermostatStandIn:
+    """Build a thermostat stand-in that carries the values the sensor reads.
+
+    ``modes`` names the calibration mode of each TRV of the room.
+    """
     bt = ThermostatStandIn()
     bt.unique_id = "bt_1"
+    bt.real_trvs = {
+        f"climate.trv_{index}": trv_record(
+            entity_id=f"climate.trv_{index}", advanced={CONF_CALIBRATION_MODE: mode}
+        )
+        for index, mode in enumerate(modes)
+    }
     bt.device_info = dict[str, str]()
     bt._available = True
     bt.clock = MagicMock(monotonic=lambda: 1000.0)
@@ -163,8 +176,27 @@ class TestSourceBinarySensors:
         assert entity(_climate()).unique_id == f"bt_1_{suffix}"
 
 
+async def _set_up(bt: ThermostatStandIn) -> tuple[list[object], list[str | None]]:
+    """Set the platform up for ``bt``; return the added sensors and the claimed ids."""
+    entry = MagicMock()
+    entry.runtime_data = BetterThermostatData(climate=bt)
+    add_entities = MagicMock()
+
+    with (
+        patch(f"{binary_sensor_platform.__name__}.er.async_get"),
+        patch(
+            f"{binary_sensor_platform.__name__}.remove_unclaimed_registry_entries"
+        ) as remove_unclaimed,
+        patch(f"{binary_sensor_platform.__name__}.async_normalize_bt_entity_ids"),
+    ):
+        await async_setup_entry(MagicMock(), entry, add_entities)
+
+    (sensors,) = add_entities.call_args.args[:1]
+    return list(sensors), list(remove_unclaimed.call_args.args[3])
+
+
 class TestPlatformSetup:
-    """The platform builds the two sensors of every thermostat."""
+    """The platform builds the two sensors of a room MPC v2 controls."""
 
     @pytest.mark.asyncio
     async def test_a_thermostat_without_an_entity_gets_no_sensors(self) -> None:
@@ -177,26 +209,46 @@ class TestPlatformSetup:
         add_entities.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_every_thermostat_gets_both_sensors(self) -> None:
+    async def test_a_room_mpc_v2_controls_gets_both_sensors(self) -> None:
         """The platform builds the heat source and the heat loss sensor."""
-        entry = MagicMock()
-        entry.runtime_data = BetterThermostatData(climate=_climate())
-        add_entities = MagicMock()
+        sensors, claimed = await _set_up(_climate(CalibrationMode.MPC_V2_CALIBRATION))
 
-        with (
-            patch(f"{binary_sensor_platform.__name__}.er.async_get"),
-            patch(
-                f"{binary_sensor_platform.__name__}.remove_unclaimed_registry_entries"
-            ),
-            patch(f"{binary_sensor_platform.__name__}.async_normalize_bt_entity_ids"),
-        ):
-            await async_setup_entry(MagicMock(), entry, add_entities)
-
-        (sensors,) = add_entities.call_args.args[:1]
         assert [type(sensor) for sensor in sensors] == [
             BetterThermostatHeatSourceBinarySensor,
             BetterThermostatHeatLossBinarySensor,
         ]
+        assert claimed == ["bt_1_heat_source_detected", "bt_1_heat_loss_detected"]
+
+    @pytest.mark.asyncio
+    async def test_one_trv_on_mpc_v2_is_enough(self) -> None:
+        """The observer runs for the room as soon as one of its TRVs uses it."""
+        sensors, _ = await _set_up(
+            _climate(
+                CalibrationMode.PID_CALIBRATION, CalibrationMode.MPC_V2_CALIBRATION
+            )
+        )
+
+        assert len(sensors) == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "modes",
+        [
+            (),
+            (CalibrationMode.MPC_CALIBRATION,),
+            (CalibrationMode.PID_CALIBRATION, CalibrationMode.DEFAULT),
+        ],
+    )
+    async def test_a_room_without_mpc_v2_gets_no_sensors(self, modes) -> None:
+        """A room no observer measures gets no sensors that have nothing to report.
+
+        Nothing is claimed either: the registry entries a room left behind
+        when it stopped using MPC v2 are removed.
+        """
+        sensors, claimed = await _set_up(_climate(*modes))
+
+        assert sensors == []
+        assert claimed == []
 
     @pytest.mark.asyncio
     async def test_a_sensor_follows_the_thermostat(self) -> None:

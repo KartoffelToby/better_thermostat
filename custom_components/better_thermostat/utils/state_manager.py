@@ -1268,7 +1268,9 @@ def _deserialize(
             state.mpc_v2_reid[key] = reid
 
     for key, entry in _stored_entries(raw, "disturbance_profile", poisoned):
-        state.disturbance_profile[key] = DisturbanceProfile.from_mapping(entry, key=key)
+        state.disturbance_profile[key] = DisturbanceProfile.from_mapping(
+            entry, key=key, poisoned=poisoned
+        )
 
     for key, entry in _stored_entries(raw, "pid", poisoned):
         state.pid[key] = deserialize_pid(entry, key=key, poisoned=poisoned)

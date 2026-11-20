@@ -48,10 +48,13 @@ def clear_sky_factor(condition: object, cloud_coverage: object = None) -> float:
     """Return the share of clear-sky irradiance a forecast condition admits.
 
     ``cloud_coverage`` is Home Assistant's percent, which wins over the
-    condition when present because it is the direct measurement. Unknown
-    conditions and absurd coverages fall back to a neutral half sky rather
-    than guessing sun or darkness.
+    condition when present because it is the direct measurement. A clear
+    night is the exception: the sun is down, so few clouds admit nothing.
+    Unknown conditions and absurd coverages fall back to a neutral half sky
+    rather than guessing sun or darkness.
     """
+    if isinstance(condition, str) and condition.lower() == "clear-night":
+        return 0.0
     if isinstance(cloud_coverage, int | float) and math.isfinite(float(cloud_coverage)):
         return max(0.0, min(1.0, 1.0 - float(cloud_coverage) / 100.0))
     if isinstance(condition, str):

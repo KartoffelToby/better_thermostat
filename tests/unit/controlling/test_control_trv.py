@@ -622,6 +622,46 @@ class TestControlTrvAvailablePath:
             assert result is True
 
     @pytest.mark.asyncio
+    async def test_a_valve_exercise_that_started_meanwhile_is_left_alone(self):
+        """A TRV that waited for the lock writes nothing into a running exercise.
+
+        Maintenance can start while a cycle is still dispatching its TRVs. The
+        exercise owns the devices from then on, its guard on the TRV included,
+        and the cycle is asked for again once it has ended.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        mock_self.in_maintenance = True
+        mock_self._control_needed_after_maintenance = False
+        mock_self.real_trvs["climate.trv1"].ignore_trv_states = True
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as quirk_mode,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ) as quirk_setpoint,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as set_mode,
+            patch(_PATCHES["set_temperature"], autospec=True) as set_setpoint,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.OFF,
+            }
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        for write in (quirk_mode, quirk_setpoint, set_mode, set_setpoint):
+            write.assert_not_called()
+        assert mock_self._control_needed_after_maintenance is True
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+    @pytest.mark.asyncio
     async def test_calibration_reads_the_cycle_the_trv_is_driven_by(self):
         """The calibration runs while the thermostat names the cycle it drives.
 

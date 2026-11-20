@@ -848,13 +848,19 @@ def _learn_disturbance_profile(
 
     Learning is gated on a plan that actually heated: an open window, a
     released device or a paused learner makes the disturbance estimate
-    describe a room the controller was not driving. The observation also
-    teaches nothing when the estimate sits on its bound, where it is clipped
-    rather than measured. A profile learns at most once a minute, so a
-    multi-TRV group stepping the shared controller once does not count the
-    same reading once per TRV.
+    describe a room the controller was not driving. An open contact holds
+    learning with window detection off as well: heating goes on then, but
+    the draught is in the estimate and would pull the learned gain down. The
+    observation also teaches nothing when the estimate sits on its bound,
+    where it is clipped rather than measured. A profile learns at most once a
+    minute, so a multi-TRV group stepping the shared controller once does not
+    count the same reading once per TRV.
     """
-    if self.learning_held or self.heating_blocked_by is not None:
+    if (
+        self.learning_held
+        or self.heating_blocked_by is not None
+        or self.contact_sensed_open
+    ):
         return
     if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
         return

@@ -21,7 +21,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import BetterThermostatConfigEntry
 from .entity import FollowsThermostat, remove_unclaimed_registry_entries
-from .utils.helpers import async_normalize_bt_entity_ids
+from .utils.const import CalibrationMode
+from .utils.helpers import async_normalize_bt_entity_ids, configured_calibration_mode
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
@@ -37,7 +38,13 @@ async def async_setup_entry(
     entry: BetterThermostatConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Better Thermostat binary sensors."""
+    """Set up the sensors of a room that MPC v2 controls.
+
+    Only the MPC v2 observer feeds them, so a room none of whose TRVs runs it
+    gets none; the registry entries such a room left behind are removed. A
+    change of the calibration mode reloads the entry, and this setup then
+    decides again.
+    """
     bt_climate = entry.runtime_data.climate
     if not bt_climate:
         _LOGGER.warning(
@@ -47,10 +54,15 @@ async def async_setup_entry(
         )
         return
 
-    sensors: list[BinarySensorEntity] = [
-        BetterThermostatHeatSourceBinarySensor(bt_climate),
-        BetterThermostatHeatLossBinarySensor(bt_climate),
-    ]
+    sensors: list[BinarySensorEntity] = []
+    if any(
+        configured_calibration_mode(trv.advanced) is CalibrationMode.MPC_V2_CALIBRATION
+        for trv in bt_climate.real_trvs.values()
+    ):
+        sensors = [
+            BetterThermostatHeatSourceBinarySensor(bt_climate),
+            BetterThermostatHeatLossBinarySensor(bt_climate),
+        ]
 
     remove_unclaimed_registry_entries(
         er.async_get(hass),

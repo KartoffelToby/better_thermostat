@@ -22,6 +22,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceDue,
+    MaintenanceIdle,
     start_run,
 )
 from tests.factories import ThermostatStandIn, trv_record
@@ -75,6 +76,29 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
     assert bt.ignore_states is False
     assert bt.kernel_state.maintenance.next_due == _NEXT
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
+
+
+@pytest.mark.asyncio
+async def test_a_run_started_by_hand_serves_a_deferred_anomaly_run(bt):
+    """The exercise an anomaly waits for is done by whichever run comes first.
+
+    A run the user starts while the anomaly's own one waits for the window
+    has exercised the valve, so the cooldown starts with it.
+    """
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        maintenance=MaintenanceIdle(next_due=_NEXT, anomaly_run_pending=True),
+    )
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert bt.kernel_state.maintenance == MaintenanceIdle(
+        next_due=_NEXT, last_anomaly_run_monotonic=1000.0
+    )
 
 
 @pytest.mark.asyncio
@@ -245,6 +269,52 @@ async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
 
     assert written_while_held == []
     assert writes == [("climate.trv", 30.0)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("callback", "adapter", "argument"),
+    [
+        ("set_valve_fn", "adapter_set_valve", 100),
+        ("set_hvac_mode_fn", "adapter_set_hvac_mode", "heat"),
+    ],
+)
+async def test_a_maintenance_valve_or_mode_write_waits_for_a_running_control_write(
+    bt, callback, adapter, argument
+):
+    """The exercise moves the valve only between the writes of a control cycle.
+
+    A cycle that was already writing to the TRV when maintenance started
+    holds the control lock for all of its writes. A valve or mode command of
+    the exercise landing among them would be overwritten by the next one.
+    """
+    bt._temperature_lock = asyncio.Lock()
+    writes = []
+
+    async def _record(_bt, entity_id, value):
+        writes.append((entity_id, value))
+        return True
+
+    async def _exercise(infos, **callbacks):
+        await callbacks[callback]("climate.trv", argument)
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise),
+        patch(f"{_CLIMATE}.{adapter}", _record),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        async with bt._temperature_lock:
+            run = asyncio.create_task(
+                BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+            )
+            for _ in range(5):
+                await asyncio.sleep(0)
+            written_while_held = list(writes)
+        await run
+
+    assert written_while_held == []
+    assert writes == [("climate.trv", argument)]
 
 
 # ---------------------------------------------------------------------------

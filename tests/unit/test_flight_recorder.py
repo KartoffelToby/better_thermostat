@@ -447,6 +447,28 @@ def test_restored_start_timestamp_outside_running_is_dropped():
     assert rebuilt.maintenance == MaintenanceDue(next_due=DUE_AT_FIRST_TICK)
 
 
+@pytest.mark.parametrize("phase", ["idle", "due"])
+def test_a_deferred_anomaly_run_survives_the_export(phase):
+    """A region read back from an export still knows its run is the anomaly's."""
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceDue,
+        MaintenanceIdle,
+    )
+
+    region = {"idle": MaintenanceIdle, "due": MaintenanceDue}[phase](
+        next_due=DUE_AT_FIRST_TICK, anomaly_run_pending=True
+    )
+    state = replace(running_kernel_state(), maintenance=region)
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+
+    assert entry["state"]["maintenance"]["anomaly_run_pending"] is True
+    assert state_from_dict(_json_object(entry["state"])).maintenance == region
+
+
 def test_restored_idle_maintenance_without_schedule_is_due_at_the_first_tick():
     """An exported IDLE region with ``next_due: null`` loads and replays.
 
@@ -827,6 +849,7 @@ class TestRoundtripCompleteness:
             "next_due": "2026-02-01T00:00:00+00:00",
             "running_since": 950.0,
             "last_anomaly_run_monotonic": None,
+            "anomaly_run_pending": False,
         }
 
 

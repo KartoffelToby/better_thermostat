@@ -367,7 +367,8 @@ async def async_setup_entry(
         await hass.config_entries.async_forward_entry_setups(entry, [Platform.CLIMATE])
         # Setup other platforms that depend on climate entity
         await hass.config_entries.async_forward_entry_setups(
-            entry, [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
+            entry,
+            [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SWITCH],
         )
     except Exception:
         _LOGGER.exception(

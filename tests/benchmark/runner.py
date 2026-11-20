@@ -713,10 +713,12 @@ def run_scenario(
     duration_s = max(
         scenario.duration_minutes * 60.0, scenario.duration_minutes * 60.0 * time_scale
     )
+    # The scenario with the simulated plant, so the anomaly evidence is
+    # built from the envelope the room really has.
     series = _drive_adapter(
         adapter,
         facade,
-        scenario,
+        effective_scenario,
         step_s,
         duration_s,
         handle_controller_restart=True,

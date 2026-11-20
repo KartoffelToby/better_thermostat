@@ -29,10 +29,15 @@ DUE_AT_FIRST_TICK: Final = datetime.min.replace(tzinfo=UTC)
 
 @dataclass(frozen=True)
 class MaintenanceIdle:
-    """Maintenance region waiting for ``next_due``."""
+    """Maintenance region waiting for ``next_due``.
+
+    ``anomaly_run_pending`` marks the run it waits for as one an anomaly
+    asked for under an open window; that run starts the cooldown.
+    """
 
     next_due: datetime
     last_anomaly_run_monotonic: float | None = None
+    anomaly_run_pending: bool = False
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -47,6 +52,7 @@ class MaintenanceDue:
 
     next_due: datetime
     last_anomaly_run_monotonic: float | None = None
+    anomaly_run_pending: bool = False
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -124,18 +130,13 @@ def evaluate_tick(
     if now < state.next_due:
         return state
     if window_open or devices_released:
-        return MaintenanceIdle(
-            next_due=now + timedelta(hours=1),
-            last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
-        )
+        return replace(state, next_due=now + timedelta(hours=1))
     if not has_enabled_trvs:
-        return MaintenanceIdle(
-            next_due=now + timedelta(days=7),
-            last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
-        )
+        return replace(state, next_due=now + timedelta(days=7))
     return MaintenanceDue(
         next_due=state.next_due,
         last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
+        anomaly_run_pending=state.anomaly_run_pending,
     )
 
 
@@ -152,7 +153,8 @@ def request_now(
     An open window arms nothing: the exercise drives the valve fully open.
     The run is handed to the schedule instead, where ``evaluate_tick``
     postpones it hour by hour until the window has closed. No run started,
-    so the cooldown does not start either.
+    so the cooldown does not start either: the region marks the run as
+    pending, and ``start_run`` starts the cooldown with it.
 
     Parameters
     ----------
@@ -172,8 +174,8 @@ def request_now(
     MaintenanceState
         ``MaintenanceDue`` with ``last_anomaly_run_monotonic=now_monotonic`` when
         armed from ``MaintenanceIdle`` outside cooldown with the window
-        closed; ``MaintenanceIdle`` due at once under an open window;
-        otherwise ``state`` unchanged.
+        closed; ``MaintenanceIdle`` due at once and marked pending under an
+        open window; otherwise ``state`` unchanged.
     """
     if not isinstance(state, MaintenanceIdle):
         return state
@@ -183,7 +185,9 @@ def request_now(
     ):
         return state
     if window_open:
-        return replace(state, next_due=min(state.next_due, now))
+        return replace(
+            state, next_due=min(state.next_due, now), anomaly_run_pending=True
+        )
     return MaintenanceDue(
         next_due=min(state.next_due, now), last_anomaly_run_monotonic=now_monotonic
     )
@@ -191,6 +195,9 @@ def request_now(
 
 def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState:
     """Move DUE to RUNNING; any other phase is unchanged (no double starts).
+
+    A run an anomaly asked for under an open window starts its cooldown
+    here, where the exercise it waited for begins.
 
     Parameters
     ----------
@@ -209,7 +216,11 @@ def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState
     return MaintenanceRunning(
         running_since=now_monotonic,
         next_due=state.next_due,
-        last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
+        last_anomaly_run_monotonic=(
+            now_monotonic
+            if state.anomaly_run_pending
+            else state.last_anomaly_run_monotonic
+        ),
     )
 
 

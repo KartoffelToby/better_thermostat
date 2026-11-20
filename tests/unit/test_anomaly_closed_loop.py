@@ -47,16 +47,23 @@ class _Room:
         self.tracker = AnomalyEvidenceTracker()
         self.now_monotonic = 0.0
         self.room_temperature = room_temperature
+        self.heating_blocked = False
 
     def minute(
         self,
         slope: float,
         *,
         trv_excess: float = 0.0,
-        valve_shut: bool = False,
+        valve_shut: bool | None = None,
         call_for_heat: bool = True,
     ) -> DesiredState:
-        """Run the control cycle a minute on, the room having moved by ``slope``."""
+        """Run the control cycle a minute on, the room having moved by ``slope``.
+
+        The TRV reports what the cycle before asked of it: its valve is shut
+        once heating was blocked, unless ``valve_shut`` says otherwise.
+        """
+        if valve_shut is None:
+            valve_shut = self.heating_blocked
         self.now_monotonic += 60.0
         self.room_temperature += slope
         contact_open = (
@@ -103,6 +110,7 @@ class _Room:
             heating_blocked_by=desired.heating_blocked_by,
             contact_open=contact_open,
         )
+        self.heating_blocked = desired.heating_blocked_by is not None
         return desired
 
     def settle(self) -> None:

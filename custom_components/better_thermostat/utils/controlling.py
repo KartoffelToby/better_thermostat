@@ -2809,7 +2809,8 @@ async def control_trv(
 
     All operations are executed within self._temperature_lock to ensure atomic execution when
     multiple TRVs are controlled in parallel. Unavailable TRVs are skipped without
-    executing any control operations.
+    executing any control operations, and so is every TRV of a room whose
+    valve exercise started while the cycle was dispatching.
 
     Parameters
     ----------
@@ -2837,6 +2838,13 @@ async def control_trv(
     _suppression_owned = False
     try:
         async with self._temperature_lock:
+            if self.in_maintenance:
+                # A valve exercise started while this TRV waited for the
+                # lock. It owns the devices until it ends, its guard on the
+                # TRV included, so nothing is written or touched here and
+                # the cycle is asked for again afterwards.
+                self._control_needed_after_maintenance = True
+                return True
             self.real_trvs[entity_id].ignore_trv_states = True
             _suppression_owned = True
             # The run of cycles with the offset at its limit continues only

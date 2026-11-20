@@ -202,14 +202,21 @@ class DisturbanceProfile:
 
     @classmethod
     def from_mapping(
-        cls, raw: Mapping[str, object], *, key: str | None = None
+        cls,
+        raw: Mapping[str, object],
+        *,
+        key: str | None = None,
+        poisoned: list[str] | None = None,
     ) -> DisturbanceProfile:
         """Rebuild a profile from a stored payload, refusing poisoned buckets.
 
         A bucket list of the wrong shape replaces the whole profile with its
         zero default; a single non-finite entry falls back to the bucket's
         default of zero. Both are named in the log, so a corrupt store is
-        visible rather than silently indistinguishable from a new room.
+        visible rather than silently indistinguishable from a new room. The
+        replaced profile is noted in *poisoned* as well: the zero default
+        overwrites the stored one on the next save, so the loader keeps the
+        payload aside first.
         """
         try:
             routine = _stored_buckets(
@@ -238,6 +245,8 @@ class DisturbanceProfile:
                 "unusable; learning starts from zero",
                 key or "an unnamed room",
             )
+            if poisoned is not None:
+                poisoned.append(f"disturbance_profile:{key}")
             return cls()
         return cls(
             routine_gain_kelvin_per_min=routine,

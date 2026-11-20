@@ -4094,6 +4094,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             region = MaintenanceDue(
                 next_due=region.next_due,
                 last_anomaly_run_monotonic=region.last_anomaly_run_monotonic,
+                anomaly_run_pending=(
+                    isinstance(region, MaintenanceIdle) and region.anomaly_run_pending
+                ),
             )
         self.kernel_state = replace(
             self.kernel_state,
@@ -4137,12 +4140,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # devices or one TRV are released goes on without writing to
             # them: from then on they are the user's, the restore at the end
             # included.
+            # Every write takes the control lock. A control cycle that was
+            # writing to a TRV when maintenance started holds it for all of
+            # that TRV's writes and reads back the setpoint it sent, so an
+            # exercise command goes out only after them. A TRV still waiting
+            # for the lock then stands down, see control_trv().
             async def _set_valve(entity_id: str, percent: int) -> bool:
-                if device_released(self, entity_id):
-                    return False
                 try:
-                    ok = await adapter_set_valve(self, entity_id, percent)
-                    return ok
+                    async with self._temperature_lock:
+                        if device_released(self, entity_id):
+                            return False
+                        return await adapter_set_valve(self, entity_id, percent)
                 except Exception:
                     _LOGGER.debug(
                         "better_thermostat %s: maintenance valve set failed for %s",
@@ -4153,19 +4161,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     return False
 
             async def _set_temperature(entity_id: str, temperature: float) -> None:
-                # A control cycle already running when maintenance starts
-                # still writes setpoints, and it reads the value the delegate
-                # sent back from the TRV once its call returns. Taking the
-                # control lock keeps a maintenance setpoint out of that window.
                 async with self._temperature_lock:
                     if device_released(self, entity_id):
                         return
                     await adapter_set_temperature(self, entity_id, temperature)
 
             async def _set_mode(entity_id: str, mode: str) -> None:
-                if device_released(self, entity_id):
-                    return
-                await adapter_set_hvac_mode(self, entity_id, mode)
+                async with self._temperature_lock:
+                    if device_released(self, entity_id):
+                        return
+                    await adapter_set_hvac_mode(self, entity_id, mode)
 
             # Run 2× open/close + restore
             await run_valve_maintenance(

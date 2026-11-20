@@ -226,6 +226,7 @@ def _fake_shell(*, mode: ControlMode = ControlMode.OPTIMAL) -> Any:
     bt = make_bt()
     bt.learning_held = False
     bt.heating_blocked_by = None
+    bt.contact_sensed_open = False
     bt.kernel_state = make_state(control_mode=ControlModeState(mode=mode))
     bt.state_mgr = _FakeStateManager()
     bt.hass = None
@@ -247,9 +248,15 @@ def test_a_clean_plan_teaches_the_routine_bucket() -> None:
 
 
 @pytest.mark.parametrize(
-    "blocker", ["learning_held", "heating_blocked_by", "at_bound", "standby"]
+    "blocker",
+    ["learning_held", "heating_blocked_by", "contact_open", "at_bound", "standby"],
 )
 def test_unclean_plans_teach_nothing(blocker: str) -> None:
+    """A plan teaches only while the room is the one the controller drives.
+
+    An open contact counts with window detection off as well: heating goes
+    on then, but the draught is in the estimate all the same.
+    """
     shell = _fake_shell(
         mode=ControlMode.HOLD if blocker == "standby" else ControlMode.OPTIMAL
     )
@@ -258,6 +265,8 @@ def test_unclean_plans_teach_nothing(blocker: str) -> None:
         shell.learning_held = True
     if blocker == "heating_blocked_by":
         shell.heating_blocked_by = object()
+    if blocker == "contact_open":
+        shell.contact_sensed_open = True
 
     _learn_disturbance_profile(shell, "room", diagnostics, MONDAY_NOON)
 

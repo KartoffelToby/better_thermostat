@@ -12,12 +12,12 @@ environmental anomalies without additional hardware sensors.
 
 - **Anomaly Detection** — enables sensorless fault and anomaly detection for
   the thermostat. When active, confirmed faults appear in the
-  `active_anomalies` attribute on the climate entity, pause thermal model
+  `anomalies` attribute on the climate entity, pause thermal model
   learning so fault data does not corrupt learned parameters, and raise Home
   Assistant repair issues for hardware faults.
 - **Suspected Window Suppression** — when both **Anomaly Detection** and
   **Suspected Window Suppression** are enabled, a confirmed rapid heat loss
-  (`rapid_heat_loss`) temporarily pauses heating as `suspected_window` for up
+  (`unexpected_rapid_loss`) temporarily pauses heating as `suspected_window` for up
   to 60 minutes or until room temperature stops falling.
 
 ## Repair issues

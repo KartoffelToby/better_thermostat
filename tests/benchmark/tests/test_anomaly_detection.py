@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from unittest.mock import patch
 
 import pytest
 
 from custom_components.better_thermostat.core.desired import AnomalyCode
+from custom_components.better_thermostat.utils.anomaly_evidence import (
+    AnomalyEvidenceTracker,
+)
 
 from ..adapters.mpc_adapter import MpcAdapter
 from ..adapters.mpc_v2_adapter import MpcV2Adapter
@@ -104,6 +108,13 @@ def test_s40_boiler_outage_detected_and_clears_upon_recovery() -> None:
     assert onset is not None
     assert (onset - 30 * 60.0) <= 90 * 60.0
 
+    # The fault holds for the whole outage: a finding that cleared by itself
+    # before the boiler came back would read as a recovery below.
+    last_before_recovery = [
+        codes for t, codes in zip(t_s, anomalies, strict=True) if t < 210 * 60.0
+    ][-1]
+    assert AnomalyCode.NO_HEAT_DELIVERY.value in last_before_recovery
+
     cleared = _first_clear_time_seconds(
         t_s, anomalies, AnomalyCode.NO_HEAT_DELIVERY.value, after_t_s=210 * 60.0
     )
@@ -173,3 +184,25 @@ def test_baseline_scenarios_have_zero_false_positives(scenario) -> None:
         if codes
     ]
     assert not non_empty, f"Unexpected anomalies: {non_empty[:5]}"
+
+
+def test_thermal_evidence_follows_an_overridden_plant() -> None:
+    """The envelope loss the detector is told is the simulated plant's.
+
+    A scenario run on another plant profile cools at that profile's rate.
+    Evidence built from the scenario's own plant would hold the room against
+    the wrong envelope.
+    """
+    scenario = replace(S09_WINDOW_OPEN_SHORT, anomaly_detection=True)
+    plant = replace(scenario.plant, tau_room_min=scenario.plant.tau_room_min / 2)
+    observe = AnomalyEvidenceTracker.observe_snapshot
+    told: set[float | None] = set()
+
+    def _spy(tracker, **readings):
+        told.add(readings["heat_loss_rate_kelvin_per_hour_per_kelvin"])
+        return observe(tracker, **readings)
+
+    with patch.object(AnomalyEvidenceTracker, "observe_snapshot", _spy):
+        run_scenario(TpiAdapter(), scenario, plant_params=plant)
+
+    assert told == {60.0 / plant.tau_room_min}
