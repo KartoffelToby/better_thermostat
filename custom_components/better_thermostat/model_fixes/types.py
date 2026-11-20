@@ -114,6 +114,11 @@ class ModelFixTrv(Protocol):
         ...
 
     @property
+    def external_temperature_writes_forgotten(self) -> int:
+        """How often the record of the room temperature sent was dropped."""
+        ...
+
+    @property
     def model_quirks(self) -> ModelQuirks:
         """Quirk module loaded for the TRV."""
         ...

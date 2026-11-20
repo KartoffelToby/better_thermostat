@@ -490,6 +490,23 @@ class TestWritesFollowTheDeviceRateLimit:
         return await ally.maybe_set_external_temperature(mock_self, ENTITY, room)
 
     @pytest.mark.asyncio
+    async def test_a_release_during_the_write_still_lets_the_value_go_out_again(
+        self, monkeypatch
+    ):
+        """A write under way when the TRV is released leaves no record behind."""
+        mock_self = _make_self(monkeypatch)
+        send = mock_self.hass.services.async_call
+        trv = mock_self.real_trvs[ENTITY]
+        send.side_effect = lambda *_args, **_kwargs: (
+            trv.forget_external_temperature_writes() if send.await_count == 1 else None
+        )
+
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+        _device_holds(mock_self, 2010)
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+        assert _written_values(mock_self) == [2010.0, 2010.0]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("room", [20.1, 20.15, 20.05])
     async def test_a_small_change_within_the_refresh_interval_is_not_written(
         self, monkeypatch, room

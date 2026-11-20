@@ -320,6 +320,7 @@ async def maybe_set_external_temperature(
     """
     try:
         trv = self.real_trvs[entity_id]
+        forgotten_before = trv.external_temperature_writes_forgotten
         # The device corrects its own regulation with the external value. A
         # calibration in Better Thermostat corrects the setpoint for the same
         # bias, so the two would compensate twice; the value is only written
@@ -415,8 +416,9 @@ async def maybe_set_external_temperature(
             blocking=True,
             context=self.context,
         )
-        trv.extra["_danfoss_external_sensor_celsius"] = written_celsius
-        trv.extra["_danfoss_external_sensor_written_at"] = now
+        if trv.external_temperature_writes_forgotten == forgotten_before:
+            trv.extra["_danfoss_external_sensor_celsius"] = written_celsius
+            trv.extra["_danfoss_external_sensor_written_at"] = now
         _LOGGER.debug(
             "better_thermostat %s: set Danfoss Ally external_measured_room_sensor=%s on %s (for %s)",
             self.device_name,
