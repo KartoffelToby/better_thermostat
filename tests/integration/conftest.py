@@ -53,6 +53,7 @@ from homeassistant.components.number import (
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import ATTR_TEMPERATURE, EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.setup import async_setup_component
@@ -76,6 +77,7 @@ from .device_profiles import (
     RoleScenario,
     ValveChannel,
     blu_trv_external_temperature_id,
+    danfoss_ally_external_sensor_id,
     external_temperature_input_id,
     offset_number_id,
     published_precision,
@@ -103,6 +105,14 @@ class ServiceCallData(TypedDict):
 # ``EVENT_CALL_SERVICE`` typed with its payload, so captured calls carry it.
 CALL_SERVICE: EventType[ServiceCallData] = EventType(EVENT_CALL_SERVICE)
 
+
+# Seconds after a head's setpoint changes until a head that copies it takes
+# the copy on: the system syncs its heads after Better Thermostat's writes,
+# not inside them.
+SETPOINT_COPY_DELAY_S = 0.2
+
+# Copies scheduled and not yet taken on; a test that ends first cancels them.
+_PENDING_SETPOINT_COPIES: set[asyncio.TimerHandle] = set()
 
 # The entity every test drives, derived from the default entry title.
 BT_ENTITY = "climate.bt_test"
@@ -161,6 +171,15 @@ def _enable_custom_integrations(_recorder, enable_custom_integrations):
 
 
 @pytest.fixture(autouse=True)
+def _cancel_pending_setpoint_copies():
+    """Cancel the setpoint copies a test ended before."""
+    yield
+    for handle in _PENDING_SETPOINT_COPIES:
+        handle.cancel()
+    _PENDING_SETPOINT_COPIES.clear()
+
+
+@pytest.fixture(autouse=True)
 def _compressed_sleeps():
     """Compress asyncio sleeps so the entity runs in test time.
 
@@ -196,8 +215,9 @@ class SimulatedClimate(ClimateEntity):
 
     ``offset_number`` and ``valve_number`` are the calibration and valve
     entities of a device that exposes those channels, and ``None`` for a
-    device that does not; ``external_temperature_input`` and
-    ``blu_trv_external_temperature`` likewise.
+    device that does not; ``external_temperature_input``,
+    ``blu_trv_external_temperature`` and ``danfoss_ally_external_sensor``
+    likewise.
     """
 
     _attr_should_poll = False
@@ -210,8 +230,14 @@ class SimulatedClimate(ClimateEntity):
         self.blu_trv_external_temperature: SimulatedBluTrvExternalTemperature | None = (
             None
         )
+        self.danfoss_ally_external_sensor: SimulatedDanfossAllyExternalSensor | None = (
+            None
+        )
         self.valve_number: SimulatedValveNumber | None = None
         self.sensor_selector: SimulatedSensorSelector | None = None
+        # The heads that take on this head's setpoint whenever it changes.
+        self.setpoint_followers: list[SimulatedClimate] = []
+        self.copied_setpoints: list[float | None] = []
         self._attr_name = profile.entity_name
         self._attr_native_temperature_unit = profile.temperature_unit
         self._attr_hvac_modes = list(profile.hvac_modes)
@@ -300,9 +326,29 @@ class SimulatedClimate(ClimateEntity):
             self.drop_next_setpoint_write = False
             return
         ceiling = self.profile.setpoint_ceiling
+        previous = self._attr_native_target_temperature
         self._attr_native_target_temperature = (
             temperature if ceiling is None else min(temperature, ceiling)
         )
+        self.async_write_ha_state()
+        if self._attr_native_target_temperature != previous:
+            for follower in self.setpoint_followers:
+                _PENDING_SETPOINT_COPIES.add(
+                    self.hass.loop.call_later(
+                        SETPOINT_COPY_DELAY_S, follower.copy_setpoint_of, self
+                    )
+                )
+
+    def copy_setpoint_of(self, leader: SimulatedClimate) -> None:
+        """Take on the setpoint another head holds, as the system syncs them.
+
+        The copy reaches Home Assistant as a report of the device's own, under
+        a context of its own rather than the one of the write it copies.
+        """
+        temperature = leader.target_temperature
+        self.copied_setpoints.append(temperature)
+        self._attr_native_target_temperature = temperature
+        self.async_set_context(Context())
         self.async_write_ha_state()
 
     @override
@@ -436,6 +482,30 @@ class SimulatedBluTrvExternalTemperature(_SimulatedNumber):
         self._attr_native_value = None
 
 
+class SimulatedDanfossAllyExternalSensor(_SimulatedNumber):
+    """The external sensor input of a Danfoss Ally, as ZHA has it.
+
+    ZHA names it after its translation key and ends its unique id with the
+    attribute name. It counts in Celsius without a device class, so Home
+    Assistant publishes it as it is, and -80 stands for no value.
+    """
+
+    _attr_name = "external temperature sensor"
+    _attr_translation_key = "external_temperature_sensor"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = -80.0
+    _attr_native_max_value = 35.0
+    _attr_native_step = 0.01
+
+    def __init__(self, profile: DeviceProfile):
+        """Register the number under a unique id shaped like the ZHA one."""
+        super().__init__(profile, "external_temperature_sensor")
+        self._attr_unique_id = (
+            f"{_object_id(profile.entity_id)}-1-513-external_measured_room_sensor"
+        )
+        self._attr_native_value = -80.0
+
+
 class SimulatedValveNumber(_SimulatedNumber):
     """The valve position a device exposes next to its climate entity."""
 
@@ -560,6 +630,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         or p.valve_channel is ValveChannel.NUMBER_ENTITY
         or p.external_temperature_input
         or p.blu_trv_external_temperature
+        or p.danfoss_ally_external_sensor
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
@@ -600,6 +671,11 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             blu_trv_input.entity_id = blu_trv_external_temperature_id(profile)
             entity.blu_trv_external_temperature = blu_trv_input
             numbers.append(blu_trv_input)
+        if profile.danfoss_ally_external_sensor:
+            ally_input = SimulatedDanfossAllyExternalSensor(profile)
+            ally_input.entity_id = danfoss_ally_external_sensor_id(profile)
+            entity.danfoss_ally_external_sensor = ally_input
+            numbers.append(ally_input)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
             valve.entity_id = valve_number_id(profile)
@@ -611,6 +687,12 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             entity.sensor_selector = selector
             selects.append(selector)
         entities.append(entity)
+
+    by_entity_id = {entity.entity_id: entity for entity in entities}
+    for entity in entities:
+        leader_id = entity.profile.copies_setpoint_of
+        if leader_id is not None:
+            by_entity_id[leader_id].setpoint_followers.append(entity)
 
     if with_device:
         await _add_devices_from_config_entry(hass, entities, numbers, selects)

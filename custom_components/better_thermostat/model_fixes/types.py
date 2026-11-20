@@ -41,7 +41,9 @@ if TYPE_CHECKING:
 class QuirkScratchpad(TypedDict, total=False):
     """Write state the quirk modules keep on a TRV record.
 
-    Each key belongs to the one quirk module that reads and writes it.
+    Each key belongs to the one quirk module that reads and writes it. The
+    record of what went out as the room temperature is forgotten when the TRV
+    is released, see ``Trv.forget_external_temperature_writes``.
     """
 
     _trvzb_valve_bump_seq: int
@@ -52,6 +54,12 @@ class QuirkScratchpad(TypedDict, total=False):
 
     _zwa021_valve_mode_engaged: bool
     """Whether the ZWA021 manufacturer-specific valve mode went through."""
+
+    _zwa021_external_temperature_last_sent: float
+    """Last room temperature reported to the ZWA021, in °C."""
+
+    _zwa021_external_temperature_sent_at: float
+    """Monotonic time of the last report, for the periodic refresh."""
 
     _danfoss_external_sensor_celsius: float
     """Room temperature the Danfoss Ally external room sensor input was last
@@ -81,6 +89,21 @@ class ModelFixTrv(Protocol):
         ...
 
     @property
+    def integration(self) -> str:
+        """Integration that owns the physical TRV."""
+        ...
+
+    @property
+    def local_temperature_calibration_entity(self) -> str | None:
+        """Discovered entity that publishes this TRV's local offset."""
+        ...
+
+    @local_temperature_calibration_entity.setter
+    def local_temperature_calibration_entity(self, value: str | None) -> None:
+        """Cache the discovered local offset entity."""
+        ...
+
+    @property
     def model(self) -> str:
         """Device model string."""
         ...
@@ -88,6 +111,11 @@ class ModelFixTrv(Protocol):
     @property
     def extra(self) -> QuirkScratchpad:
         """Scratch space a quirk keeps its own write state in."""
+        ...
+
+    @property
+    def external_temperature_writes_forgotten(self) -> int:
+        """How often the record of the room temperature sent was dropped."""
         ...
 
     @property

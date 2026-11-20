@@ -41,20 +41,55 @@ _LOGGER = logging.getLogger(__name__)
 # ZVIDAR Z-TRV-V01 is a clone of the same device and drives its valve the same
 # way, so it resolves onto that module too. Zigbee2MQTT drives the Danfoss
 # Ally 014G2463, the Popp 701721 and the Hive UK7004240 through the
-# definition of the Danfoss Ally 014G2461, under their own model names. Home
+# definition of the Danfoss Ally 014G2461, under their own model names. ZHA
+# names the same devices eTRV0100, eTRV0101 and eTRV0103 (Danfoss), eT093WRO
+# and eT093WRG (Popp), and TRV001 and TRV003 (Hive). Home
 # Assistant's Shelly integration registers the Shelly BLU TRV with the model
 # id SBTR-001AEU and the model name Shelly BLU TRV; a device entry that
 # carries only the name resolves onto the module of the id. Zigbee2MQTT names
 # the Bosch BTH-RA Radiator thermostat II; a release that publishes no model
 # id leaves only that name, and it resolves onto the module of the id too.
+#
+# Zigbee2MQTT replaces the model id of a white-label device it recognises by
+# fingerprint with the white-label model, so each of those resolves onto the
+# module of the definition that drives it. Zigbee2MQTT names the Moes
+# BHT-002-GCLZB BHT-002, and BHT-002/BHT-006 as a Moes white label of it.
+#
+# ZHA names a device with the model string it reports itself: the Bosch
+# BTH-RA RBSH-TRV0-ZB-EU or RBSH-TRV1-ZB-EU, the BTH-RM RBSH-RTH0-BAT-ZB-EU,
+# the BTH-RM230Z RBSH-RTH0-ZB-EU and the Aqara SRTS-A01 lumi.airrtc.agl001.
 _QUIRK_MODULE_ALIASES = {
     "Spirit": "ZWA021",
     "Z-TRV-V01": "ZWA021",
     "014G2463": "014G2461",
     "701721": "014G2461",
     "UK7004240": "014G2461",
+    "eTRV0100": "014G2461",
+    "eTRV0101": "014G2461",
+    "eTRV0103": "014G2461",
+    "eT093WRO": "014G2461",
+    "eT093WRG": "014G2461",
+    "TRV001": "014G2461",
+    "TRV003": "014G2461",
     "Shelly BLU TRV": "SBTR-001AEU",
     "Radiator thermostat II": "BTH-RA",
+    "BHT-002": "BHT-002-GCLZB",
+    "BHT-002/BHT-006": "BHT-002-GCLZB",
+    "07732L": "TS0601_thermostat",
+    "P5630S": "TS0601_thermostat",
+    "HY368": "TS0601_thermostat",
+    "ZTRV-ZX-TV01-MS": "TV02-Zigbee",
+    "TV01-ZB": "TV02-Zigbee",
+    "HA-08_THERMO": "TV02-Zigbee",
+    "TV06": "TV02-Zigbee",
+    "ZTRV-ZX-TV02": "TV02-Zigbee",
+    "ETT-8": "TV02-Zigbee",
+    "H1Z": "SEA801-Zigbee_SEA802-Zigbee",
+    "RBSH-TRV0-ZB-EU": "BTH-RA",
+    "RBSH-TRV1-ZB-EU": "BTH-RA",
+    "RBSH-RTH0-BAT-ZB-EU": "BTH-RM",
+    "RBSH-RTH0-ZB-EU": "BTH-RM230Z",
+    "lumi.airrtc.agl001": "SRTS-A01",
 }
 
 

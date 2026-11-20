@@ -36,9 +36,6 @@ ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "select.trv_local_temperature_calibration"
 
 BOOSTING_QUIRKS = {
-    "TS0601": importlib.import_module(
-        "custom_components.better_thermostat.model_fixes.TS0601"
-    ),
     "TS0601_thermostat": importlib.import_module(
         "custom_components.better_thermostat.model_fixes.TS0601_thermostat"
     ),
@@ -49,11 +46,7 @@ BOOSTING_QUIRKS = {
 
 # Setpoint the TRV lands on for a 21 °C request while its sensor reads
 # 20 °C, which is within 1.5 K below the request.
-BOOSTED = {
-    "TS0601": 22.5,
-    "TS0601_thermostat": 22.5,
-    "SEA801-Zigbee_SEA802-Zigbee": 21.5,
-}
+BOOSTED = {"TS0601_thermostat": 22.5, "SEA801-Zigbee_SEA802-Zigbee": 21.5}
 
 
 def _host(unit=UnitOfTemperature.CELSIUS, state=None, advanced=None):

@@ -37,13 +37,17 @@ from . import (
     other_entries_controlling,
     trv_entity_ids,
 )
-from .adapters.base import DeviceChannels
+from .adapters.base import DeviceChannels, holds_reserved_value
 from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import (
+    get_model_quirks_name,
     load_model_quirks,
     quirk_ignores_calibration_offset,
     quirk_writes_valve,
+)
+from .model_fixes.ZWA021 import (
+    EXTERNAL_TEMPERATURE_OFFSET as ZWA021_EXTERNAL_TEMPERATURE_OFFSET,
 )
 from .utils.advanced_flags import as_bool as _as_bool
 from .utils.const import (
@@ -96,6 +100,7 @@ from .utils.helpers import (
     device_offers_mode,
     entry_name,
     entry_settings,
+    find_local_calibration_entity,
     get_device_model,
     get_trv_intigration,
     is_bt_climate_entity,
@@ -362,8 +367,30 @@ class _AdvancedContext:
     default_calibration: CalibrationOutput
     homematic: bool
     has_auto: bool
+    default_calibration_mode: CalibrationMode = DEFAULT_CALIBRATION_MODE
     valve_only: bool = False
     bound_sensor: bool = False
+
+
+async def _offset_selects_external_temperature(
+    flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft
+) -> bool:
+    """Tell whether a Z-Wave Spirit/ZWA021 offset holds its external-sensor value."""
+    if trv.integration != "zwave_js":
+        return False
+    stored_model = trv.stored.get("model")
+    model = await get_device_model(
+        flow,
+        trv.entity_id,
+        configured_model=stored_model if isinstance(stored_model, str) else None,
+    )
+    if get_model_quirks_name(model) != "ZWA021":
+        return False
+    offset_entity = await find_local_calibration_entity(flow, trv.entity_id)
+    state = flow.hass.states.get(offset_entity) if offset_entity else None
+    return state is not None and holds_reserved_value(
+        state, ZWA021_EXTERNAL_TEMPERATURE_OFFSET
+    )
 
 
 def _bound_sensor_errors(
@@ -682,6 +709,7 @@ def _build_advanced_fields(
     *,
     sources: Iterable[Mapping[str, object] | None],
     default_calibration: CalibrationOutput,
+    default_calibration_mode: CalibrationMode = DEFAULT_CALIBRATION_MODE,
     homematic: bool,
     has_auto: bool,
     channels: DeviceChannels | None = None,
@@ -739,7 +767,7 @@ def _build_advanced_fields(
         CalibrationMode.NO_CALIBRATION.value
         if bound_sensor
         else get_choice(
-            CONF_CALIBRATION_MODE, _CALIBRATION_MODE_CHOICES, DEFAULT_CALIBRATION_MODE
+            CONF_CALIBRATION_MODE, _CALIBRATION_MODE_CHOICES, default_calibration_mode
         )
     )
     ordered[vol.Required(CONF_CALIBRATION_MODE, default=calibration_mode_default)] = (
@@ -803,6 +831,7 @@ def _normalize_advanced_submission(
     data: Mapping[str, object],
     *,
     default_calibration: CalibrationOutput,
+    default_calibration_mode: CalibrationMode = DEFAULT_CALIBRATION_MODE,
     homematic: bool,
     has_auto: bool,
 ) -> _AdvancedDraft:
@@ -811,8 +840,8 @@ def _normalize_advanced_submission(
             data.get(CONF_CALIBRATION, default_calibration), default_calibration
         ),
         CONF_CALIBRATION_MODE: _submitted_choice(
-            data.get(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
-            DEFAULT_CALIBRATION_MODE,
+            data.get(CONF_CALIBRATION_MODE, default_calibration_mode),
+            default_calibration_mode,
         ),
         CONF_PROTECT_OVERHEATING: _as_bool(data.get(CONF_PROTECT_OVERHEATING), False),
         CONF_NO_OFF_SYSTEM_MODE: _as_bool(data.get(CONF_NO_OFF_SYSTEM_MODE), False),
@@ -1251,7 +1280,7 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft
+    flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft, *, new_entry: bool = False
 ) -> _AdvancedContext:
     stored_model = trv.stored.get("model")
     _adapter, channels = await _load_adapter_info(
@@ -1262,6 +1291,14 @@ async def _prepare_advanced_context(
         configured_model=stored_model if isinstance(stored_model, str) else None,
     )
     bound_sensor = regulates_on_bound_sensor(flow.hass, trv.entity_id) is True
+    # A Spirit/ZWA021 whose offset already selects the external sensor
+    # regulates on the reported room temperature, which no calibration
+    # in Better Thermostat may correct a second time.
+    default_calibration_mode = (
+        CalibrationMode.NO_CALIBRATION
+        if new_entry and await _offset_selects_external_temperature(flow, trv)
+        else DEFAULT_CALIBRATION_MODE
+    )
     return _AdvancedContext(
         entity_id=trv.entity_id,
         channels=channels,
@@ -1272,6 +1309,7 @@ async def _prepare_advanced_context(
             if bound_sensor
             else _default_calibration_for(channels)
         ),
+        default_calibration_mode=default_calibration_mode,
         homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
         has_auto=_trv_supports_auto(flow, trv.entity_id),
         valve_only=(
@@ -1537,7 +1575,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert trv is not None
 
         self._active_trv = trv
-        ctx = await _prepare_advanced_context(self, trv)
+        ctx = await _prepare_advanced_context(self, trv, new_entry=True)
         existing_adv = trv.stored_advanced()
         _LOGGER.debug(
             "ConfigFlow advanced step called (index=%s, trv=%s) with user_input=%s",
@@ -1551,6 +1589,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             advanced_data = _normalize_advanced_submission(
                 user_input,
                 default_calibration=ctx.default_calibration,
+                default_calibration_mode=ctx.default_calibration_mode,
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
@@ -1591,6 +1630,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx.default_calibration,
+            default_calibration_mode=ctx.default_calibration_mode,
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
             channels=ctx.channels,
@@ -1742,6 +1782,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced_data = _normalize_advanced_submission(
                 user_input,
                 default_calibration=ctx.default_calibration,
+                default_calibration_mode=ctx.default_calibration_mode,
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
@@ -1823,6 +1864,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx.default_calibration,
+            default_calibration_mode=ctx.default_calibration_mode,
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
             channels=ctx.channels,
