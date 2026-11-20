@@ -58,6 +58,13 @@ _LOGGER = logging.getLogger(__name__)
 # ZHA names a device with the model string it reports itself: the Bosch
 # BTH-RA RBSH-TRV0-ZB-EU or RBSH-TRV1-ZB-EU, the BTH-RM RBSH-RTH0-BAT-ZB-EU,
 # the BTH-RM230Z RBSH-RTH0-ZB-EU and the Aqara SRTS-A01 lumi.airrtc.agl001.
+#
+# Zigbee2MQTT names the Aqara Radiator thermostat W600 WT-A03E. It exposes
+# the same ``sensor`` selector (``internal``/``external``) and
+# ``external_temperature_input`` number as the SRTS-A01, so it resolves onto
+# that module. The W600 falls back to its own sensor after 75 minutes without
+# a written temperature; the 30-minute keepalive stays inside that window.
+# Under Matter the W600 reports the product id 18437 and has its own module.
 _QUIRK_MODULE_ALIASES = {
     "Spirit": "ZWA021",
     "Z-TRV-V01": "ZWA021",
@@ -90,6 +97,7 @@ _QUIRK_MODULE_ALIASES = {
     "RBSH-RTH0-BAT-ZB-EU": "BTH-RM",
     "RBSH-RTH0-ZB-EU": "BTH-RM230Z",
     "lumi.airrtc.agl001": "SRTS-A01",
+    "WT-A03E": "SRTS-A01",
 }
 
 
