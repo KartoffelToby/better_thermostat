@@ -613,7 +613,7 @@ async def _quirk_ignores_offset(
     except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
         _LOGGER.debug("model quirk probe failed", exc_info=True)
         return False
-    return quirk_ignores_calibration_offset(quirks)
+    return quirk_ignores_calibration_offset(quirks, flow, entity_id)
 
 
 async def _load_adapter_info(

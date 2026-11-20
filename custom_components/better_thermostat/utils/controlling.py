@@ -77,7 +77,6 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     offset_from_device,
     override_set_hvac_mode,
     override_set_temperature,
-    quirk_ignores_calibration_offset,
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
     valve_readings,
@@ -3176,9 +3175,7 @@ async def control_trv(
                 # offset is not pursued until it is enabled again.
                 and not calibration_entity_disabled(self, entity_id)
                 # Nor is the offset of a model that ignores it.
-                and not quirk_ignores_calibration_offset(
-                    self.real_trvs[entity_id].model_quirks
-                )
+                and not self.real_trvs[entity_id].calibration_offset_ignored
             ):
                 _current_calibration_raw = await get_calibration_offset(self, entity_id)
 

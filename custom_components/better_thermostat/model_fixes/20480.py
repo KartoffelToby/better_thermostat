@@ -18,8 +18,6 @@ Everything else stays as the default quirks have it.
 
 from __future__ import annotations
 
-from typing import Final
-
 from custom_components.better_thermostat.model_fixes.default import (
     fix_local_calibration,
     fix_target_temperature_calibration,
@@ -31,10 +29,11 @@ from custom_components.better_thermostat.model_fixes.types import (
     IgnoredOffsetQuirk,
     InitialTweakQuirk,
     ModelQuirks,
+    RegistryHost,
 )
 
 __all__ = [
-    "CALIBRATION_OFFSET_IGNORED",
+    "calibration_offset_ignored",
     "fix_local_calibration",
     "fix_target_temperature_calibration",
     "initial_tweak",
@@ -42,7 +41,26 @@ __all__ = [
     "override_set_temperature",
 ]
 
-CALIBRATION_OFFSET_IGNORED: Final = True
+
+def calibration_offset_ignored(self: RegistryHost, entity_id: str) -> bool:
+    """Report that the LILJEBAGGE ignores its offset.
+
+    The product id this module is keyed to is a Matter one, so every device
+    it loads for is on Matter and the answer needs no registry lookup.
+
+    Parameters
+    ----------
+    self : RegistryHost
+        Caller providing Home Assistant access.
+    entity_id : str
+        Entity id of the TRV.
+
+    Returns
+    -------
+    bool
+        Always True.
+    """
+    return True
 
 
 class _Surface:
@@ -55,7 +73,7 @@ class _Surface:
     override_set_hvac_mode = staticmethod(override_set_hvac_mode)
     override_set_temperature = staticmethod(override_set_temperature)
     initial_tweak = staticmethod(initial_tweak)
-    CALIBRATION_OFFSET_IGNORED = CALIBRATION_OFFSET_IGNORED
+    calibration_offset_ignored = staticmethod(calibration_offset_ignored)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()

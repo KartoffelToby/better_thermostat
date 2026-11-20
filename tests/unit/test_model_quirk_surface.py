@@ -63,6 +63,7 @@ OPTIONAL = (
     "trv_state_unknown_as_available",
     "local_calibration_shifts_setpoint",
     "local_calibration_inverted",
+    "calibration_offset_ignored",
     "valve_readings",
 )
 SURFACE = REQUIRED + OPTIONAL
@@ -80,6 +81,7 @@ CALL_CONTRACT = {
     "trv_state_unknown_as_available": ((), bool),
     "local_calibration_shifts_setpoint": ((), bool),
     "local_calibration_inverted": ((), bool),
+    "calibration_offset_ignored": ((), bool),
     "valve_readings": ((50,), Sequence),
 }
 

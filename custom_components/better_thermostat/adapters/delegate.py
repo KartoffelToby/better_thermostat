@@ -28,7 +28,6 @@ from ..model_fixes.model_quirks import (
     lowest_applied_calibration_offset,
     offset_from_device,
     offset_to_device,
-    quirk_ignores_calibration_offset,
 )
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import (
@@ -634,7 +633,7 @@ async def set_calibration_offset(
     """
     if calibration_entity_disabled(self, entity_id):
         return False
-    if quirk_ignores_calibration_offset(self.real_trvs[entity_id].model_quirks):
+    if self.real_trvs[entity_id].calibration_offset_ignored:
         _LOGGER.debug(
             "better_thermostat %s: %s ignores its calibration offset, "
             "nothing was written",

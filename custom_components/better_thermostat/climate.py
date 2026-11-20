@@ -573,18 +573,23 @@ async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
     """
     trv = self.real_trvs[entity_id]
     resolved_model = await get_device_model(self, entity_id, configured_model=trv.model)
-    if resolved_model == trv.model:
-        return
-    _LOGGER.info(
-        "better_thermostat %s: device registry now names model '%s' for %s "
-        "(was '%s'); loading its model quirks",
-        self.device_name,
-        resolved_model,
-        entity_id,
-        trv.model,
+    if resolved_model != trv.model:
+        _LOGGER.info(
+            "better_thermostat %s: device registry now names model '%s' for %s "
+            "(was '%s'); loading its model quirks",
+            self.device_name,
+            resolved_model,
+            entity_id,
+            trv.model,
+        )
+        trv.model_quirks = await load_model_quirks(self, resolved_model, entity_id)
+        trv.model = resolved_model
+    # Asked once per initialisation, after the model is settled. The answer
+    # may read the entity registry, so every runtime path reads it off the
+    # record rather than asking the registry each cycle.
+    trv.calibration_offset_ignored = quirk_ignores_calibration_offset(
+        trv.model_quirks, self, entity_id
     )
-    trv.model_quirks = await load_model_quirks(self, resolved_model, entity_id)
-    trv.model = resolved_model
 
 
 def _arm_degraded_grace(self: BetterThermostat) -> datetime:
@@ -1761,6 +1766,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 calibration=configured_calibration_output(_advanced),
                 adapter=_adapter,
                 model_quirks=_model_quirks,
+                # Answered here so the record never holds an unasked default;
+                # _refresh_trv_model asks again once the model is settled.
+                calibration_offset_ignored=quirk_ignores_calibration_offset(
+                    _model_quirks, self, trv["trv"]
+                ),
                 model=resolved_model,
                 # A copy: settings changed at runtime, such as the child-lock
                 # switch, must not rewrite the settings the entry was set up
@@ -3140,7 +3150,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # Only a TRV calibrated through its offset has one BT reads or
             # writes; every other TRV keeps the neutral defaults.
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
-                if quirk_ignores_calibration_offset(trv.model_quirks):
+                if trv.calibration_offset_ignored:
                     _LOGGER.warning(
                         "better_thermostat %s: TRV %s (model %s) ignores its "
                         "calibration offset, so no offset is written to it and "

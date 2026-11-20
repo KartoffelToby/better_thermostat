@@ -30,6 +30,7 @@ from typing import Final
 
 from custom_components.better_thermostat.model_fixes.default import (
     VALVE_MAINTENANCE_INTERVAL_HOURS,
+    calibration_offset_ignored,
     fix_local_calibration,
     fix_target_temperature_calibration,
     initial_tweak,
@@ -38,6 +39,7 @@ from custom_components.better_thermostat.model_fixes.default import (
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.model_fixes.types import (
+    IgnoredOffsetQuirk,
     InitialTweakQuirk,
     MaintenanceIntervalQuirk,
     ModelQuirks,
@@ -50,6 +52,7 @@ VALVE_KEEPALIVE_INTERVAL_SECONDS: Final = 480.0
 __all__ = [
     "VALVE_KEEPALIVE_INTERVAL_SECONDS",
     "VALVE_MAINTENANCE_INTERVAL_HOURS",
+    "calibration_offset_ignored",
     "fix_local_calibration",
     "fix_target_temperature_calibration",
     "initial_tweak",
@@ -71,6 +74,7 @@ class _Surface:
     VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
     initial_tweak = staticmethod(initial_tweak)
     trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+    calibration_offset_ignored = staticmethod(calibration_offset_ignored)
     VALVE_KEEPALIVE_INTERVAL_SECONDS = VALVE_KEEPALIVE_INTERVAL_SECONDS
 
 
@@ -78,4 +82,5 @@ _MODEL_QUIRKS: ModelQuirks = _Surface()
 _INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()
 _MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
 _UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()
+_IGNORED_OFFSET_QUIRK: IgnoredOffsetQuirk = _Surface()
 _VALVE_KEEPALIVE_QUIRK: ValveKeepaliveQuirk = _Surface()
