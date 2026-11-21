@@ -328,6 +328,8 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         ),
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
+        window_open_temperature=_float_or_none(data.get("window_open_temperature")),
+        door_open_temperature=_float_or_none(data.get("door_open_temperature")),
         preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
         # An export from before the room could release its devices carries
         # no such key; its devices were never released.

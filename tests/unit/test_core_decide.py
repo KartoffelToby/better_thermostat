@@ -622,3 +622,57 @@ class TestRegionIntegration:
         state = make_state(maintenance=running)
         desired, _ = decide(make_snapshot(), state)
         assert dict(desired.trvs) == {}
+
+
+class TestOpenContactTemperature:
+    """A window or door with an open temperature holds it instead of off."""
+
+    OPEN = WindowState(phase=WindowPhase.OPEN)
+
+    def test_window_holds_its_temperature(self):
+        """An open window with a temperature keeps the mode and sets it."""
+        desired, _ = decide(
+            make_snapshot(window_open_temperature=12.0), make_state(window=self.OPEN)
+        )
+        assert all(t.hvac_mode == HvacMode.HEAT for t in desired.trvs.values())
+        assert all(t.setpoint == 12.0 for t in desired.trvs.values())
+        assert all(t.suppression == Suppression.WINDOW for t in desired.trvs.values())
+
+    def test_door_holds_its_temperature(self):
+        """An open door with a temperature keeps the mode and sets it."""
+        desired, _ = decide(
+            make_snapshot(door_open_temperature=15.0), make_state(door=self.OPEN)
+        )
+        assert all(t.setpoint == 15.0 for t in desired.trvs.values())
+        assert all(t.suppression == Suppression.DOOR for t in desired.trvs.values())
+
+    def test_door_temperature_does_not_apply_to_a_window(self):
+        """Only the door has a temperature, so an open window still turns off."""
+        desired, _ = decide(
+            make_snapshot(door_open_temperature=15.0), make_state(window=self.OPEN)
+        )
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+    def test_contact_without_temperature_turns_off_when_both_open(self):
+        """The open contact with no temperature wins and turns the TRVs off."""
+        desired, _ = decide(
+            make_snapshot(window_open_temperature=12.0),
+            make_state(window=self.OPEN, door=self.OPEN),
+        )
+        assert all(t.hvac_mode == HvacMode.OFF for t in desired.trvs.values())
+
+    def test_lowest_temperature_wins_when_both_open(self):
+        """With both contacts open and set, the lower temperature rules."""
+        desired, _ = decide(
+            make_snapshot(window_open_temperature=12.0, door_open_temperature=16.0),
+            make_state(window=self.OPEN, door=self.OPEN),
+        )
+        assert all(t.setpoint == 12.0 for t in desired.trvs.values())
+
+    def test_detection_off_ignores_the_temperature(self):
+        """With window detection off the target rules as usual."""
+        desired, _ = decide(
+            make_snapshot(window_open_temperature=12.0),
+            make_state(window=self.OPEN, window_detection=False),
+        )
+        assert all(t.setpoint == 21.0 for t in desired.trvs.values())

@@ -26,6 +26,7 @@
     "call_for_heat": false,
     "cool_target_temperature": null,
     "devices_released": false,
+    "door_open_temperature": null,
     "heat_target_temperature": 21.0,
     "hvac_mode": "heat",
     "is_day": true,
@@ -68,7 +69,8 @@
         "valve_max_opening": null
       }
     },
-    "window_open": null
+    "window_open": null,
+    "window_open_temperature": null
   },
   "state": {
     "control_mode": {

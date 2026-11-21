@@ -107,6 +107,10 @@ class WorldSnapshot:
     # configured). Pure observation for the flight recorder — the
     # debounced window region in the kernel state rules the control law.
     window_open: bool | None = None
+    # Celsius the TRVs hold while the debounced window or door region is open
+    # (None: turn off).
+    window_open_temperature: float | None = None
+    door_open_temperature: float | None = None
     preset_mode: Preset | None = None
     # The user has handed the room's devices over: no device is commanded
     # until they are taken back.

@@ -29,6 +29,8 @@ def _make_bt() -> MagicMock:
     """Return a fully populated BetterThermostat stand-in."""
     bt = ThermostatStandIn()
     bt.window_sensor_entity_id = None
+    bt.window_open_temperature = 12.0
+    bt.door_open_temperature = 15.0
     bt.device_name = "Test BT"
     bt.clock = FakeClock(
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
@@ -77,6 +79,8 @@ COMPLETENESS_TABLE = [
     ("temperature_slope", "temperature_slope", 0.05),
     ("call_for_heat", "call_for_heat", True),
     ("devices_released", "devices_released", True),
+    ("window_open_temperature", "window_open_temperature", 12.0),
+    ("door_open_temperature", "door_open_temperature", 15.0),
     ("preset_mode", "preset_mode", "eco"),
     ("tolerance", "tolerance", 0.3),
     ("bt_min_temp", "min_temp", 5.0),

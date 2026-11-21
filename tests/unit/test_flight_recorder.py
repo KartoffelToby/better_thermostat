@@ -698,6 +698,8 @@ class TestRoundtripCompleteness:
             "temperature_slope": 0.02,
             "call_for_heat": True,
             "window_open": True,
+            "window_open_temperature": 12.0,
+            "door_open_temperature": 15.0,
             "preset_mode": Preset.ECO,
             "devices_released": True,
             "tolerance": 0.3,

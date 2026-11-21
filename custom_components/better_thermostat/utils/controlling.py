@@ -2811,8 +2811,17 @@ async def control_trv(
             # diverges, and the safety hull enforces the frost floor. Mode
             # suppression (OFF / window) below stays active. An OFF intent
             # carries no target: the remap's setpoint stands, which for a
-            # TRV without an OFF mode is its minimum.
-            if self.kernel_state.control_mode.mode == ControlMode.HOLD:
+            # TRV without an OFF mode is its minimum. An open window or door
+            # with a configured open temperature takes the same path: the
+            # intent carries that setpoint and no calibration runs.
+            _open_setback = (
+                trv_desired.suppression in (Suppression.WINDOW, Suppression.DOOR)
+                and trv_desired.hvac_mode != HVACMode.OFF
+            )
+            _passthrough = (
+                self.kernel_state.control_mode.mode == ControlMode.HOLD or _open_setback
+            )
+            if _passthrough:
                 if trv_desired.hvac_mode != HVACMode.OFF:
                     _LOGGER.debug(
                         "better_thermostat %s: control mode HOLD - locking %s on "
@@ -2833,6 +2842,7 @@ async def control_trv(
                     self.kernel_state.control_mode.mode == ControlMode.HOLD
                     and trv_desired.hvac_mode != HvacMode.OFF
                     and not self.real_trvs[entity_id].uses_valve_only_control
+                    and not _open_setback
                 ):
                     valve_settings, _source = None, None
                 else:
@@ -2842,7 +2852,11 @@ async def control_trv(
                         entity_id,
                         _calibration_mode,
                         _calibration_output,
-                        hvac_mode=trv_desired.hvac_mode,
+                        # An open contact closes the valve of a valve-driven
+                        # device, as OFF does; the setpoint still goes out.
+                        hvac_mode=(
+                            HvacMode.OFF if _open_setback else trv_desired.hvac_mode
+                        ),
                     )
                 # A valve with no channel to write through is not pursued,
                 # and no retry is scheduled for it, until one appears.

@@ -170,6 +170,7 @@ from .utils.const import (
     CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
+    CONF_DOOR_OPEN_TEMPERATURE,
     CONF_DOOR_SENSORS,
     CONF_HUMIDITY_SENSOR,
     CONF_MODEL,
@@ -185,6 +186,7 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
+    CONF_WINDOW_OPEN_TEMPERATURE,
     CONF_WINDOW_SENSORS,
     DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     DEFAULT_MAX_TEMP,
@@ -739,6 +741,32 @@ def _configured_off_temperature(
     return parsed_off
 
 
+def _configured_open_temperature(
+    value: str | float | None, device_name: str, unit: UnitOfTemperature
+) -> float | None:
+    """Return the temperature to hold while a window or door is open, in Celsius.
+
+    The flows store it in the system unit. No value, or one that does not read
+    as a number, means the heating turns off instead.
+    """
+    if value in (None, "", "None"):
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        _LOGGER.warning(
+            "better_thermostat %s: invalid open temperature '%s', ignoring",
+            device_name,
+            value,
+        )
+        return None
+    if unit == UnitOfTemperature.FAHRENHEIT:
+        return TemperatureConverter.convert(
+            parsed, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    return parsed
+
+
 def _configured_tolerance(
     value: str | float | None, device_name: str, unit: UnitOfTemperature
 ) -> float:
@@ -802,6 +830,12 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
         ),
         door_close_delay_seconds=_configured_delay(
             settings.get(CONF_DOOR_OFF_DELAY_AFTER), name, CONF_DOOR_OFF_DELAY_AFTER
+        ),
+        window_open_temperature=_configured_open_temperature(
+            settings.get(CONF_WINDOW_OPEN_TEMPERATURE), name, unit
+        ),
+        door_open_temperature=_configured_open_temperature(
+            settings.get(CONF_DOOR_OPEN_TEMPERATURE), name, unit
         ),
         weather_entity_id=settings.get(CONF_WEATHER) or None,
         outdoor_sensor_entity_id=settings.get(CONF_OUTDOOR_SENSOR) or None,
@@ -1035,6 +1069,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     def door_open_delay_seconds(self) -> float:
         """Return the door-open debounce delay in seconds."""
         return self.config.door_open_delay_seconds
+
+    @property
+    def window_open_temperature(self) -> float | None:
+        """Return the temperature held while a window is open, or None for off."""
+        return self.config.window_open_temperature
+
+    @property
+    def door_open_temperature(self) -> float | None:
+        """Return the temperature held while a door is open, or None for off."""
+        return self.config.door_open_temperature
 
     @property
     def door_close_delay_seconds(self) -> float:
