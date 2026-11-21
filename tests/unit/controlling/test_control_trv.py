@@ -1862,6 +1862,60 @@ class TestOffIntentClosesTheValve:
         assert mock_set_temperature.call_args[0][2] == 22.0
 
     @pytest.mark.asyncio
+    async def test_open_window_hold_leaves_the_valve_of_a_thermostat_alone(self):
+        """An open window with a hold temperature sends it and writes no valve.
+
+        A closed valve would keep a TRV with its own thermostat from heating
+        to the hold temperature, so its valve is not written at all.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            room_temperature=18.0,
+            heat_target_temperature=22.0,
+            window_open=True,
+            window_open_temperature=12.0,
+            real_trvs={
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        mock_set_valve.assert_not_called()
+        mock_set_temperature.assert_called_once()
+        assert mock_set_temperature.call_args[0][2] == 12.0
+
+    @pytest.mark.asyncio
     async def test_hold_still_closes_the_valve_when_switched_off(self):
         """HOLD writes no calibrated valve percentage, but it does close the valve.
 

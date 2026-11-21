@@ -2836,13 +2836,16 @@ async def control_trv(
             # Optional: set valve position if supported (e.g., MQTT/Z2M).
             # In HOLD a valve-only device needs an emergency opening because
             # no device thermostat can take over. Other devices retain their
-            # state; OFF closure still applies to all valves.
+            # state; OFF closure still applies to all valves. An open contact
+            # with a hold temperature leaves the valve of a device with its own
+            # thermostat alone, so the setpoint takes effect.
             try:
-                if (
-                    self.kernel_state.control_mode.mode == ControlMode.HOLD
-                    and trv_desired.hvac_mode != HvacMode.OFF
-                    and not self.real_trvs[entity_id].uses_valve_only_control
-                    and not _open_setback
+                if not self.real_trvs[entity_id].uses_valve_only_control and (
+                    _open_setback
+                    or (
+                        self.kernel_state.control_mode.mode == ControlMode.HOLD
+                        and trv_desired.hvac_mode != HvacMode.OFF
+                    )
                 ):
                     valve_settings, _source = None, None
                 else:
@@ -2852,8 +2855,8 @@ async def control_trv(
                         entity_id,
                         _calibration_mode,
                         _calibration_output,
-                        # An open contact closes the valve of a valve-driven
-                        # device, as OFF does; the setpoint still goes out.
+                        # Only a valve-only device reaches here under an open
+                        # contact: it holds no setpoint, so its valve closes.
                         hvac_mode=(
                             HvacMode.OFF if _open_setback else trv_desired.hvac_mode
                         ),
