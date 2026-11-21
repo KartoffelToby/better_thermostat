@@ -2811,8 +2811,17 @@ async def control_trv(
             # diverges, and the safety hull enforces the frost floor. Mode
             # suppression (OFF / window) below stays active. An OFF intent
             # carries no target: the remap's setpoint stands, which for a
-            # TRV without an OFF mode is its minimum.
-            if self.kernel_state.control_mode.mode == ControlMode.HOLD:
+            # TRV without an OFF mode is its minimum. An open window or door
+            # with a configured open temperature takes the same path: the
+            # intent carries that setpoint and no calibration runs.
+            _open_setback = (
+                trv_desired.suppression in (Suppression.WINDOW, Suppression.DOOR)
+                and trv_desired.hvac_mode != HVACMode.OFF
+            )
+            _passthrough = (
+                self.kernel_state.control_mode.mode == ControlMode.HOLD or _open_setback
+            )
+            if _passthrough:
                 if trv_desired.hvac_mode != HVACMode.OFF:
                     _LOGGER.debug(
                         "better_thermostat %s: control mode HOLD - locking %s on "
@@ -2827,12 +2836,16 @@ async def control_trv(
             # Optional: set valve position if supported (e.g., MQTT/Z2M).
             # In HOLD a valve-only device needs an emergency opening because
             # no device thermostat can take over. Other devices retain their
-            # state; OFF closure still applies to all valves.
+            # state; OFF closure still applies to all valves. An open contact
+            # with a hold temperature leaves the valve of a device with its own
+            # thermostat alone, so the setpoint takes effect.
             try:
-                if (
-                    self.kernel_state.control_mode.mode == ControlMode.HOLD
-                    and trv_desired.hvac_mode != HvacMode.OFF
-                    and not self.real_trvs[entity_id].uses_valve_only_control
+                if not self.real_trvs[entity_id].uses_valve_only_control and (
+                    _open_setback
+                    or (
+                        self.kernel_state.control_mode.mode == ControlMode.HOLD
+                        and trv_desired.hvac_mode != HvacMode.OFF
+                    )
                 ):
                     valve_settings, _source = None, None
                 else:
@@ -2842,7 +2855,11 @@ async def control_trv(
                         entity_id,
                         _calibration_mode,
                         _calibration_output,
-                        hvac_mode=trv_desired.hvac_mode,
+                        # Only a valve-only device reaches here under an open
+                        # contact: it holds no setpoint, so its valve closes.
+                        hvac_mode=(
+                            HvacMode.OFF if _open_setback else trv_desired.hvac_mode
+                        ),
                     )
                 # A valve with no channel to write through is not pursued,
                 # and no retry is scheduled for it, until one appears.

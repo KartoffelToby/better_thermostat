@@ -176,3 +176,60 @@ def test_heaters_are_preserved_when_the_form_is_redisplayed():
         "climate.trv",
         "climate.trv_2",
     ]
+
+
+def test_open_temperatures_are_independent_and_clearable():
+    """Window and door temperatures are set separately; clearing one drops it."""
+    base = _base_with_cooler() | {
+        "window_open_temperature": 12.0,
+        "door_open_temperature": 15.0,
+    }
+    user_input = {
+        CONF_NAME: "Living Room",
+        CONF_THERMOSTAT: ["climate.trv"],
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
+        "window_open_temperature": 10,
+    }
+
+    normalized = _normalize_user_submission(
+        user_input, mode="update", base=base, system_unit=UnitOfTemperature.CELSIUS
+    )
+
+    assert normalized["window_open_temperature"] == 10.0
+    assert normalized["door_open_temperature"] is None
+
+
+def test_a_non_finite_open_temperature_counts_as_none():
+    """A submitted nan or inf must not be stored as a hold temperature."""
+    for value in ("nan", "inf", float("nan")):
+        normalized = _normalize_user_submission(
+            {
+                CONF_NAME: "Living Room",
+                CONF_THERMOSTAT: ["climate.trv"],
+                CONF_TEMPERATURE_SENSOR: "sensor.temp",
+                "window_open_temperature": value,
+            },
+            mode="update",
+            base=_base_with_cooler(),
+            system_unit=UnitOfTemperature.CELSIUS,
+        )
+        assert normalized["window_open_temperature"] is None
+
+
+def _open_temperature_marker(user_input):
+    fields = _build_user_fields(
+        mode="update",
+        current={CONF_THERMOSTAT: ["climate.trv"], "door_open_temperature": 15.0},
+        user_input=user_input,
+        system_unit=UnitOfTemperature.CELSIUS,
+    )
+    return next(marker for marker in fields if marker == "door_open_temperature")
+
+
+def test_a_cleared_open_temperature_stays_empty_when_the_form_is_redisplayed():
+    """The stored value is suggested on first open, not after a cleared submit."""
+    first_open = _open_temperature_marker({})
+    redisplay = _open_temperature_marker({CONF_NAME: "Living Room"})
+
+    assert first_open.description["suggested_value"] == 15.0
+    assert not redisplay.description

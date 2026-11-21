@@ -15,7 +15,8 @@ The cascade (top wins):
    commanded.
 3. Mode — OFF turns every TRV off.
 4. Window/Door — an open window or door turns every TRV off without
-   touching the mode, as long as window detection is on.
+   touching the mode, as long as window detection is on. A contact with
+   an open temperature configured holds that setpoint instead.
 5. Call for heat — without heat demand every TRV is turned off.
 6. Heating — every addressed TRV is asked to heat towards the room
    target. Under the ladder's HOLD rung no calibration runs; the intent
@@ -175,6 +176,23 @@ def _with_mode(
     }
 
 
+def _open_contact_setpoint(snapshot: WorldSnapshot, state: KernelState) -> float | None:
+    """Return the setpoint to hold while a window or door is open.
+
+    Each open contact brings its own configured temperature, or none, which
+    means off. A contact without one turns the heating off; otherwise the
+    lowest of the open contacts' temperatures rules.
+    """
+    temperatures = []
+    if state.window.effective_open:
+        temperatures.append(snapshot.window_open_temperature)
+    if state.door.effective_open:
+        temperatures.append(snapshot.door_open_temperature)
+    if None in temperatures:
+        return None
+    return min(temperatures)
+
+
 def decide(
     snapshot: WorldSnapshot, state: KernelState
 ) -> tuple[DesiredState, KernelState]:
@@ -279,10 +297,23 @@ def decide(
         suppression = (
             Suppression.WINDOW if state.window.effective_open else Suppression.DOOR
         )
+        open_setpoint = _open_contact_setpoint(snapshot, state)
+        if open_setpoint is None:
+            trvs = _with_mode(addressed, HvacMode.OFF, suppression)
+        else:
+            trvs = {
+                entity_id: TrvDesired(
+                    entity_id=entity_id,
+                    hvac_mode=state.mode.hvac_mode,
+                    setpoint=open_setpoint,
+                    suppression=suppression,
+                )
+                for entity_id in addressed
+            }
         return (
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
-                trvs=_with_mode(addressed, HvacMode.OFF, suppression),
+                trvs=trvs,
                 heating_blocked_by=SUPPRESSION_BLOCKS[suppression],
             ),
             state,

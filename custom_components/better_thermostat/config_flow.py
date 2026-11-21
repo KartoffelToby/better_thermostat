@@ -7,6 +7,7 @@ from collections.abc import Collection, Iterable, Mapping
 import copy
 from dataclasses import dataclass, replace
 import logging
+import math
 from typing import Final, Literal, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
@@ -60,6 +61,7 @@ from .utils.const import (
     CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
+    CONF_DOOR_OPEN_TEMPERATURE,
     CONF_DOOR_SENSORS,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HOMEMATICIP,
@@ -82,6 +84,7 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
+    CONF_WINDOW_OPEN_TEMPERATURE,
     CONF_WINDOW_SENSORS,
     DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     DEFAULT_CALIBRATION_MODE,
@@ -293,6 +296,8 @@ _UserDraft = TypedDict(  # noqa: UP013
         "window_off_delay_after": NotRequired[int],
         "door_off_delay": NotRequired[int],
         "door_off_delay_after": NotRequired[int],
+        "window_open_temperature": float | None,
+        "door_open_temperature": float | None,
         "off_temperature": int,
         "presets": NotRequired[list[str] | None],
         "tolerance": float,
@@ -442,6 +447,21 @@ def _float_or(value: object, fallback: float) -> float:
         return fallback
 
 
+def _float_or_none(value: object) -> float | None:
+    """Return ``float(value)``, or ``None`` for no value or one that is no number."""
+    if (
+        value is None
+        or isinstance(value, bool)
+        or not isinstance(value, int | float | str)
+    ):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _submitted_choice(value: object, fallback: StoredChoice) -> StoredChoice:
     """Return a submitted choice, or ``fallback`` when it is not a scalar."""
     if value is None or isinstance(value, str | int | float):
@@ -486,6 +506,8 @@ def _merged_settings(
         merged[CONF_DOOR_OFF_DELAY] = draft[CONF_DOOR_OFF_DELAY]
     if CONF_DOOR_OFF_DELAY_AFTER in draft:
         merged[CONF_DOOR_OFF_DELAY_AFTER] = draft[CONF_DOOR_OFF_DELAY_AFTER]
+    merged[CONF_WINDOW_OPEN_TEMPERATURE] = draft[CONF_WINDOW_OPEN_TEMPERATURE]
+    merged[CONF_DOOR_OPEN_TEMPERATURE] = draft[CONF_DOOR_OPEN_TEMPERATURE]
     merged[CONF_OFF_TEMPERATURE] = draft[CONF_OFF_TEMPERATURE]
     if CONF_PRESETS in draft:
         merged[CONF_PRESETS] = draft[CONF_PRESETS]
@@ -906,7 +928,7 @@ def _build_user_fields(
         description = None
         use_default = default is not None
 
-        if isinstance(field_type, selector.EntitySelector):
+        if isinstance(field_type, selector.EntitySelector | selector.NumberSelector):
             if default not in (None, [], ""):
                 description = {"suggested_value": default}
             use_default = False
@@ -1026,6 +1048,22 @@ def _build_user_fields(
             else:
                 duration_default = None
         add_field(key, selector.DurationSelector(), default=duration_default)
+
+    for key in (CONF_WINDOW_OPEN_TEMPERATURE, CONF_DOOR_OPEN_TEMPERATURE):
+        add_field(
+            key,
+            selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=-50,
+                    max=100,
+                    step=0.5,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement=system_unit,
+                )
+            ),
+            # A redisplayed form omits a cleared field; it must stay empty.
+            default=user_input.get(key) if user_input else resolve(key),
+        )
 
     add_entity_selector(
         CONF_AVAILABILITY_GUARD, domain=["binary_sensor", "switch", "input_boolean"]
@@ -1181,6 +1219,12 @@ def _normalize_user_submission(
         CONF_WEATHER: _entity_or_none(user_input.get(CONF_WEATHER)),
         CONF_AVAILABILITY_GUARD: _entity_or_none(
             user_input.get(CONF_AVAILABILITY_GUARD)
+        ),
+        CONF_WINDOW_OPEN_TEMPERATURE: _float_or_none(
+            user_input.get(CONF_WINDOW_OPEN_TEMPERATURE)
+        ),
+        CONF_DOOR_OPEN_TEMPERATURE: _float_or_none(
+            user_input.get(CONF_DOOR_OPEN_TEMPERATURE)
         ),
         CONF_OFF_TEMPERATURE: _int_or(off_temperature, suggested_off_temperature),
         CONF_TOLERANCE: _float_or(

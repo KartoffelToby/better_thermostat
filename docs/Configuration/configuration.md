@@ -57,11 +57,18 @@ Screen 1 configures the room, its sensors, its comfort deadband (`Tolerance`), a
 #### `Delay before the thermostat should turn on when the window is closed` *(Default: `0 s` — Recommended: `120–300 s`)*
 - **What happens when you change it:** Right after closing a winter window, a pocket of cold air lingers around your room sensor. Waiting 2–5 minutes lets room air mix back toward its true temperature so Better Thermostat doesn't blast an unnecessary overshoot spike.
 
+#### `Temperature to hold while a window is open` *(Optional)*
+- **What it does:** Instead of turning the TRVs off, holds this temperature while the window is open, for example `12` as frost protection. Leave it empty to turn off. A TRV that only takes a valve position closes its valve.
+
 #### `Door sensor` *(Optional)*
 - **What it does:** Works just like `Window sensor`, with its own independent timers so interior hallway doors can tolerate normal foot traffic while still pausing heating if a door is propped open ([Door sensor](/faq/door-sensor/)). Heating resumes once **every** configured window *and* door reports closed.
 
 #### `Delay before the thermostat should turn off when the door is opened` *(Default: `0 s` — Recommended: `240–300 s`)*
 #### `Delay before the thermostat should turn on when the door is closed` *(Default: `0 s` — Recommended: `30–60 s`)*
+
+#### `Temperature to hold while a door is open` *(Optional)*
+- **What it does:** Works like the window temperature, for doors only, so you can set one without the other. With a window and a door open at once, a contact with no temperature turns the TRVs off; otherwise the lower temperature wins.
+
 - **Tip:** Toggling the device's **`Window Detection`** switch Off temporarily bypasses **both** window and door sensors together ([Entities & attributes](/setup/entities/)).
 
 ---
