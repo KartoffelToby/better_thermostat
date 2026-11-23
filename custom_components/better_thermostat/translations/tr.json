@@ -534,6 +534,9 @@
       },
       "tolerance": {
         "name": "Tolerans"
+      },
+      "target_offset": {
+        "name": "Hedef sıcaklık ofseti"
       }
     },
     "switch": {

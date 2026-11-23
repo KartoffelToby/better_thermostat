@@ -148,6 +148,32 @@ async def test_the_preset_pair_sent_back_keeps_the_preset(
     assert _read_published(hass) == published
 
 
+@pytest.mark.parametrize("target_offset", [-1.0, 1.0])
+async def test_resending_preset_pair_with_offset_keeps_the_preset(
+    hass, device_role, target_offset
+):
+    """The ordered cooling target remains part of the active preset."""
+    entry = await _started_in_heat_cool(hass, device_role.scenario)
+    bt = entry.runtime_data.climate
+    assert bt is not None
+    bt.target_offset = target_offset
+    bt.preset_mgr.update_temperature("comfort", 20.0)
+    bt._preset_cool_temperatures["comfort"] = 20.5
+    await _call(hass, "set_preset_mode", {"preset_mode": "comfort"})
+    published = _read_published(hass)
+    preset, heating_target, cooling_target = published
+    assert preset == "comfort"
+    assert cooling_target > max(heating_target, heating_target + target_offset)
+
+    await _call(
+        hass,
+        "set_temperature",
+        {"target_temp_low": heating_target, "target_temp_high": cooling_target},
+    )
+
+    assert _read_published(hass) == published
+
+
 async def test_the_stored_cooling_value_below_the_heating_one_is_a_manual_change(
     hass, device_role
 ):
