@@ -203,6 +203,10 @@ async def _setup_algorithm_sensors(
             [
                 BetterThermostatPidOutputSensor(bt_climate),
                 BetterThermostatPidErrorSensor(bt_climate),
+                BetterThermostatPidIntegralSensor(bt_climate),
+                BetterThermostatPidITermSensor(bt_climate),
+                BetterThermostatPidSlopeSensor(bt_climate),
+                BetterThermostatPidSlopeEmaSensor(bt_climate),
             ],
         )
         algorithm_sensors.extend(pid_sensors)
@@ -727,7 +731,7 @@ type MpcSensorKey = Literal["mpc_virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"
 type MpcV2SensorKey = Literal[
     "T_room_hat", "coupling_rad_room", "D_hat_K_per_min", "tau_room_min"
 ]
-type PidSensorKey = Literal["u", "e_K"]
+type PidSensorKey = Literal["u", "e_K", "integral", "i", "slope_in", "slope_ema"]
 
 
 class _BtMpcSensorBase(_BtSensorBase):
@@ -1060,3 +1064,43 @@ class BetterThermostatPidErrorSensor(_BtPidSensorBase):
     _attr_native_unit_of_measurement = "K"
     _pid_debug_key = "e_K"
     _unique_id_suffix = "pid_error"
+
+
+class BetterThermostatPidIntegralSensor(_BtPidSensorBase):
+    """Representation of the accumulated PID integral Sensor."""
+
+    _attr_translation_key = "pid_integral"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "%"
+    _pid_debug_key = "integral"
+    _unique_id_suffix = "pid_integral"
+
+
+class BetterThermostatPidITermSensor(_BtPidSensorBase):
+    """Representation of the PID I-term contribution Sensor."""
+
+    _attr_translation_key = "pid_i_term"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "%"
+    _pid_debug_key = "i"
+    _unique_id_suffix = "pid_i_term"
+
+
+class BetterThermostatPidSlopeSensor(_BtPidSensorBase):
+    """Representation of the PID derivative input slope Sensor."""
+
+    _attr_translation_key = "pid_slope"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "K/min"
+    _pid_debug_key = "slope_in"
+    _unique_id_suffix = "pid_slope"
+
+
+class BetterThermostatPidSlopeEmaSensor(_BtPidSensorBase):
+    """Representation of the smoothed PID slope Sensor."""
+
+    _attr_translation_key = "pid_slope_ema"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "K/min"
+    _pid_debug_key = "slope_ema"
+    _unique_id_suffix = "pid_slope_ema"

@@ -36,7 +36,11 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcV2RoomTimeConstantSensor,
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
+    BetterThermostatPidIntegralSensor,
+    BetterThermostatPidITermSensor,
     BetterThermostatPidOutputSensor,
+    BetterThermostatPidSlopeEmaSensor,
+    BetterThermostatPidSlopeSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
     _cleanup_pid_number_entities,
@@ -109,6 +113,10 @@ def _bt_climate() -> ThermostatStandIn:
         (BetterThermostatMpcV2RoomTimeConstantSensor, "bt_1_mpc_v2_room_time_constant"),
         (BetterThermostatPidOutputSensor, "bt_1_pid_output"),
         (BetterThermostatPidErrorSensor, "bt_1_pid_error"),
+        (BetterThermostatPidIntegralSensor, "bt_1_pid_integral"),
+        (BetterThermostatPidITermSensor, "bt_1_pid_i_term"),
+        (BetterThermostatPidSlopeSensor, "bt_1_pid_slope"),
+        (BetterThermostatPidSlopeEmaSensor, "bt_1_pid_slope_ema"),
     ],
 )
 def test_entity_unique_id_is_spelled_as_registered(entity, expected):

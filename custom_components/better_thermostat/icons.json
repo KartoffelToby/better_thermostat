@@ -39,6 +39,18 @@
       },
       "pid_error": {
         "default": "mdi:thermometer-alert"
+      },
+      "pid_integral": {
+        "default": "mdi:math-integral"
+      },
+      "pid_i_term": {
+        "default": "mdi:math-integral"
+      },
+      "pid_slope": {
+        "default": "mdi:chart-line"
+      },
+      "pid_slope_ema": {
+        "default": "mdi:chart-line"
       }
     },
     "switch": {
