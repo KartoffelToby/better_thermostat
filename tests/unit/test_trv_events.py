@@ -2748,8 +2748,10 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 5.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_maximum(self, mock_bt):
-        """Setpoint above max should be clamped."""
+    async def test_setpoint_clamped_to_maximum_without_cooler(self, mock_bt, caplog):
+        """A heating-range clamp without a cooler must not log a cooling target."""
+        mock_bt.cool_target_temperature = None
+        caplog.set_level(logging.INFO)
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
         )
@@ -2772,6 +2774,7 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.heat_target_temperature == 30.0
+        assert "does not clear the cooling target" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_clamped_setpoint_that_is_adopted_is_reported(self, mock_bt, caplog):
@@ -2907,6 +2910,38 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
+    async def test_settled_no_off_minimum_report_is_adopted_after_shifted_echo(
+        self, mock_bt
+    ):
+        """A settled unlocked no-off minimum can be a physical knob turn."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = True
+        trv.min_temp = 5.0
+        trv.commanded_setpoint = 7.0
+        mock_bt.target_offset = 2.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        trv.hvac_mode = HVACMode.HEAT
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        old_state = _make_state(
+            attributes={"temperature": 20.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event, mode_settled=True)
+
+        assert mock_bt.heat_target_temperature == 5.0
+
+    @pytest.mark.asyncio
     async def test_setpoint_blocked_when_off(self, mock_bt):
         """No setpoint adoption when bt_hvac_mode is OFF."""
         mock_bt.bt_hvac_mode = HVACMode.OFF
@@ -3029,6 +3064,188 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 22.0
 
     @pytest.mark.asyncio
+    async def test_knob_target_is_converted_back_from_the_offset(self, mock_bt):
+        """A physical target of 22 becomes 21.5 when the offset is 0.5."""
+        mock_bt.target_offset = 0.5
+        mock_bt._bound_target_to_range = lambda value: value
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 21.5
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("target_offset", "known", "reported", "expected"),
+        [
+            (2.0, 30.0, 31.0, 29.0),
+            (2.0, 31.0, 31.0, 19.0),
+            (2.0, 32.0, 33.0, 19.0),
+            (-2.0, 5.0, 4.0, 6.0),
+            (-2.0, 3.0, 2.0, 19.0),
+        ],
+    )
+    async def test_offset_echo_detection_uses_shifted_bounds(
+        self, mock_bt, target_offset, known, reported, expected
+    ):
+        """A turn above the room bound differs from a raw or bounded echo."""
+        mock_bt.target_offset = target_offset
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = known
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        (
+            "reported",
+            "target_offset",
+            "cool_target_temperature",
+            "expected",
+            "range_warning",
+        ),
+        [
+            (31.0, 2.0, None, 29.0, False),
+            (4.0, -2.0, None, 6.0, False),
+            (22.0, 0.5, None, 21.5, False),
+            (33.0, 2.0, None, 30.0, True),
+            (27.0, 2.0, 24.0, 21.5, False),
+            (24.0, -2.0, 24.0, 23.5, False),
+        ],
+    )
+    async def test_knob_offset_is_removed_before_bounds(
+        self,
+        mock_bt,
+        caplog,
+        reported,
+        target_offset,
+        cool_target_temperature,
+        expected,
+        range_warning,
+    ):
+        """An offset report is converted before range and cooling limits."""
+        mock_bt.target_offset = target_offset
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        if cool_target_temperature is not None:
+            mock_bt.cooler_entity_id = "climate.cooler"
+            mock_bt.cool_target_temperature = cool_target_temperature
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == expected
+        assert ("setpoint outside of range" in caplog.text) is range_warning
+        if cool_target_temperature is not None:
+            assert mock_bt.cool_target_temperature == cool_target_temperature
+
+    @pytest.mark.asyncio
+    async def test_knob_turn_uses_configured_offset_at_room_maximum(self, mock_bt):
+        """A saturated old target does not erase the configured offset."""
+        mock_bt.heat_target_temperature = 30.0
+        mock_bt.target_offset = 2.0
+        mock_bt.cooler_entity_id = None
+        mock_bt.cool_target_temperature = None
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 30.0
+        old_state = _make_state(
+            attributes={"temperature": 30.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 29.5, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 27.5
+
+    @pytest.mark.asyncio
+    async def test_saturated_target_knob_reduction_is_preserved_outbound(self, mock_bt):
+        """A saturated old target does not erase the configured offset on a turn."""
+        mock_bt.heat_target_temperature = 30.0
+        mock_bt.target_offset = 2.0
+        mock_bt.cooler_entity_id = None
+        mock_bt.cool_target_temperature = None
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        mock_bt.real_trvs[ENTITY_ID].advanced.update(
+            {
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+            }
+        )
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 30.0
+        old_state = _make_state(
+            attributes={"temperature": 30.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 29.5, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 27.5
+        payload = convert_outbound_states(mock_bt, ENTITY_ID, HVACMode.HEAT)
+        assert payload is not None
+        assert payload["temperature"] == 29.5
+
+    @pytest.mark.asyncio
     async def test_cooler_sync_keeps_cooltemp_above_target(self, mock_bt):
         """A reported target that already clears the cool target is taken as is."""
         mock_bt.cooler_entity_id = "climate.cooler"
@@ -3096,6 +3313,42 @@ class TestTargetTempAdoption:
 
         assert mock_bt.heat_target_temperature == 21.5
         assert mock_bt.cool_target_temperature == 22.0  # untouched
+        assert mock_bt.heat_target_temperature < mock_bt.cool_target_temperature
+
+    @pytest.mark.asyncio
+    async def test_negative_offset_report_does_not_raise_cool_target(self, mock_bt):
+        """Negative offsets still keep the displayed heating target below cooling."""
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.cool_target_temperature = 24.0
+        mock_bt.target_offset = -2.0
+        mock_bt.bt_target_temperature_step = 0.5
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 24.0, "current_temperature": 18.0}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 24.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.cool_target_temperature == 24.0
+        assert mock_bt.heat_target_temperature == 23.5
         assert mock_bt.heat_target_temperature < mock_bt.cool_target_temperature
 
     @pytest.mark.asyncio

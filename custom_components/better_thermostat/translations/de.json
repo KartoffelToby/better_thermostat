@@ -534,6 +534,9 @@
       },
       "tolerance": {
         "name": "Toleranz"
+      },
+      "target_offset": {
+        "name": "Zieltemperatur-Offset"
       }
     },
     "switch": {

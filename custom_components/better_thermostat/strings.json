@@ -540,6 +540,9 @@
       },
       "tolerance": {
         "name": "Tolerance"
+      },
+      "target_offset": {
+        "name": "Target Offset"
       }
     },
     "switch": {

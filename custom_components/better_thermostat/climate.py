@@ -243,6 +243,7 @@ from .utils.helpers import (
     normalize_hvac_mode,
     normalize_step,
     read_bound_celsius,
+    regulation_target,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     room_mode_intent,
@@ -1238,6 +1239,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     @cool_target_temperature.setter
     def cool_target_temperature(self, value: float | None) -> None:
         """Set the BT-internal cooling target temperature."""
+        if value != self.runtime.cool_target_temperature:
+            self._offset_ordered_cool_target = None
         self.runtime.cool_target_temperature = value
 
     @property
@@ -1376,6 +1379,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # apply_live_settings replaces the configuration as a whole.
         self.config = config
         self.runtime = BtRuntime(heat_target_temperature=DEFAULT_TARGET_TEMP)
+        self.target_offset = 0.0
         self._unique_id = unique_id
         self._unit: UnitOfTemperature = unit
         self._device_class = device_class
@@ -1410,6 +1414,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
+        self._offset_ordered_cool_target: tuple[float, float] | None = None
         self.cool_target_temperature = None
         # Per-channel cooler send bookkeeping: the last successfully sent
         # command, the settled reading of each written channel, the mode the
@@ -2896,6 +2901,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
                 if _restored_loss is not None:
                     self.heat_loss_rate = _restored_loss
+            self._restore_offset_ordered_cool_target(old_state)
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
@@ -2979,6 +2985,79 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 cool_target_before_preset
             )
         self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+
+    def _restore_offset_ordered_cool_target(self, state: State) -> None:
+        """Restore a valid offset-ordering rollback pair from saved attributes."""
+        saved = state.attributes.get("offset_ordered_cool_target")
+        if not isinstance(saved, (list, tuple)) or len(saved) != 2:
+            return
+        original, adjusted = saved
+        if (
+            isinstance(original, bool)
+            or not isinstance(original, (int, float))
+            or not math.isfinite(original)
+            or isinstance(adjusted, bool)
+            or not isinstance(adjusted, (int, float))
+            or not math.isfinite(adjusted)
+        ):
+            return
+        restored = self.cool_target_temperature
+        if (
+            isinstance(restored, bool)
+            or not isinstance(restored, (int, float))
+            or not math.isfinite(restored)
+        ):
+            return
+        if restored == adjusted:
+            values_match = True
+        elif getattr(self, "_unit", None) == UnitOfTemperature.FAHRENHEIT:
+            values_match = round(
+                TemperatureConverter.convert(
+                    float(restored),
+                    UnitOfTemperature.CELSIUS,
+                    UnitOfTemperature.FAHRENHEIT,
+                ),
+                1,
+            ) == round(
+                TemperatureConverter.convert(
+                    float(adjusted),
+                    UnitOfTemperature.CELSIUS,
+                    UnitOfTemperature.FAHRENHEIT,
+                ),
+                1,
+            )
+        else:
+            values_match = math.isclose(
+                float(restored),
+                float(adjusted),
+                rel_tol=0.0,
+                abs_tol=PRECISION_TENTHS / 2.0,
+            )
+        if not values_match:
+            return
+
+        # A rounded match is safe only when target ordering would leave the
+        # restored value alone. Otherwise the state no longer describes the
+        # offset-induced lift that this rollback is meant to undo.
+        heating = max(self.heat_target_temperature, regulation_target(self))
+        if restored <= heating:
+            enforced = _cool_target_above(
+                heating,
+                self.bt_target_temperature_step,
+                get_cool_temperature_bounds(self)[1],
+            )
+            if not math.isclose(
+                float(restored),
+                enforced,
+                rel_tol=0.0,
+                abs_tol=(
+                    PRECISION_TENTHS / 2.0 / 1.8
+                    if getattr(self, "_unit", None) == UnitOfTemperature.FAHRENHEIT
+                    else PRECISION_TENTHS / 2.0
+                ),
+            ):
+                return
+        self._offset_ordered_cool_target = (float(original), float(restored))
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
         """Validate and fix HVAC mode after state restoration."""
@@ -4298,7 +4377,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.room_temperature,
             current_action,
             self.clock.utcnow(),
-            heat_target_temperature=self.heat_target_temperature,
+            heat_target_temperature=regulation_target(self),
             outdoor_temperature=outdoor_temperature,
             learning_paused=self.learning_held,
         )
@@ -4442,7 +4521,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         dict
                 Attribute dictionary for the extra device specific state attributes.
         """
+        temperature_unit = self.hass.config.units.temperature_unit
         dev_specific: dict[str, object] = {
+            "target_offset": getattr(self, "target_offset", 0.0)
+            * (1.8 if temperature_unit == UnitOfTemperature.FAHRENHEIT else 1.0),
+            "regulation_target_temp": regulation_target(self),
+            "offset_ordered_cool_target": getattr(
+                self, "_offset_ordered_cool_target", None
+            ),
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
@@ -4708,7 +4794,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     ) -> bool:
         """Apply hysteresis so heating restarts only below target - tolerance."""
         return should_heat_with_tolerance(
-            self.room_temperature, self.heat_target_temperature, tol, previous_action
+            self.room_temperature, regulation_target(self), tol, previous_action
         )
 
     def _compute_hvac_action(self) -> HVACAction:
@@ -4743,7 +4829,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return compute_hvac_action(
             hysteresis=self._hysteresis,
             room_temperature=self.room_temperature,
-            heat_target_temperature=self.heat_target_temperature,
+            heat_target_temperature=regulation_target(self),
             cool_target_temperature=self.cool_target_temperature,
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
@@ -5020,13 +5106,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         if not regardless_of_hvac_mode and self.hvac_mode != HVACMode.HEAT_COOL:
             return
+        heating = max(self.heat_target_temperature, regulation_target(self))
         if (
             self.cool_target_temperature is None
-            or self.cool_target_temperature > self.heat_target_temperature
+            or self.cool_target_temperature > heating
         ):
             return
         adjusted = _cool_target_above(
-            self.heat_target_temperature,
+            heating,
             self.bt_target_temperature_step,
             get_cool_temperature_bounds(self)[1],
         )
@@ -5034,13 +5121,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # The maximum and the heating target coincide and the cooling target
             # already rests on them, so the bump has nowhere to land.
             return
-        if adjusted > self.heat_target_temperature:
+        if adjusted > heating:
             _LOGGER.warning(
                 "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
                 self.device_name,
                 self.cool_target_temperature,
                 adjusted,
-                self.heat_target_temperature,
+                heating,
             )
         else:
             _LOGGER.warning(
@@ -5079,20 +5166,30 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         if not regardless_of_hvac_mode and self.hvac_mode != HVACMode.HEAT_COOL:
             return
+        target_offset = getattr(self, "target_offset", 0.0)
+        if not isinstance(target_offset, (int, float)) or not math.isfinite(
+            target_offset
+        ):
+            target_offset = 0.0
+        target_offset = max(0.0, target_offset)
+        heating = max(self.heat_target_temperature, regulation_target(self))
         if (
             self.cool_target_temperature is None
-            or self.heat_target_temperature < self.cool_target_temperature
+            or heating < self.cool_target_temperature
         ):
             return
         step = normalize_step(self.bt_target_temperature_step)
-        adjusted = self.cool_target_temperature - step
+        adjusted = self.cool_target_temperature - step - target_offset
         if self.bt_min_temp is not None:
             adjusted = max(adjusted, self.bt_min_temp)
         if adjusted == self.heat_target_temperature:
             # The minimum pins the drop on the heating target itself, so it has
             # nowhere to land.
             return
-        if adjusted < self.cool_target_temperature:
+        effective_adjusted = max(
+            adjusted, regulation_target(self, heat_target_temperature=adjusted)
+        )
+        if effective_adjusted < self.cool_target_temperature:
             _LOGGER.warning(
                 "better_thermostat %s: heating target %.2f adjusted to %.2f to stay below cooling target %.2f",
                 self.device_name,
@@ -5208,7 +5305,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.cooler_entity_id is None:
             return value
         step = normalize_step(self.bt_target_temperature_step)
-        floor = self.heat_target_temperature + step
+        floor = max(self.heat_target_temperature, regulation_target(self)) + step
         maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None:
             floor = min(floor, maximum)
@@ -5231,6 +5328,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
         still OFF, and the same event then resolves the mode to HEAT.
 
+        The input is on the displayed target's scale. A positive target offset
+        lowers the ceiling so the effective heating target clears cooling too.
+
         The one step of separation comes from :func:`normalize_step` for the
         same reason as in the counterpart: a step a child reports as negative or
         non-finite would either invert the pair or drop the bound.
@@ -5250,10 +5350,24 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         if self.cooler_entity_id is None or self.cool_target_temperature is None:
             return value
+        heat_minimum, heat_maximum = get_heat_temperature_range(self)
+        value = _bound_into(value, heat_minimum, heat_maximum)
+        effective_heating = max(
+            value, regulation_target(self, heat_target_temperature=value)
+        )
+        if effective_heating < self.cool_target_temperature:
+            return value
         step = normalize_step(self.bt_target_temperature_step)
-        ceiling = self.cool_target_temperature - step
-        if self.bt_min_temp is not None:
-            ceiling = max(ceiling, self.bt_min_temp)
+        target_offset = getattr(self, "target_offset", 0.0)
+        if not isinstance(target_offset, (int, float)) or not math.isfinite(
+            target_offset
+        ):
+            target_offset = 0.0
+        target_offset = max(0.0, target_offset)
+        ceiling = self.cool_target_temperature - step - target_offset
+        ceiling = min(ceiling, heat_maximum)
+        ceiling = max(ceiling, heat_minimum)
+        ceiling = min(ceiling, heat_maximum)
         return min(value, ceiling)
 
     def _onto_target_grid(self, value: float | None) -> float | None:
@@ -5304,7 +5418,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         applies one step above it.
         """
         applied = self._applied_target(stored, cooling=True)
-        heating = self.heat_target_temperature
+        heating = max(self.heat_target_temperature, regulation_target(self))
         if applied > heating:
             return applied
         return _cool_target_above(
@@ -5958,7 +6072,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Clears every cached PIDState entry of this entity (all TRVs and
         buckets) and schedules a save. With ``apply_pid_defaults`` it then
         seeds the given gains, or the PIDParams defaults, into the bucket of
-        the current target and its ±0.5 °C neighbours on every TRV.
+        the current regulation target and its ±0.5 °C neighbours on every TRV.
 
         Raises
         ------
@@ -5978,7 +6092,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
         buckets: list[str] = []
         if apply_pid_defaults:
-            target = self.heat_target_temperature
+            target = regulation_target(self)
             if not math.isfinite(target):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
