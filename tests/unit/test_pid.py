@@ -689,6 +689,66 @@ class TestPIDController:
         assert key == "test_bt:climate.test:t22.5"
 
 
+class TestPidDebugIntegral:
+    """The debug payload carries the integrator and the i-term apart.
+
+    The i-term is the contribution the controller computed for this
+    cycle's output; the integral is the accumulator that was written back
+    to the state. They differ whenever the conditional anti-windup blocks
+    the integration, and a diagnostic sensor that reported only one of
+    them would hide that cycle.
+    """
+
+    def _params(self) -> PIDParams:
+        """Return the parameters the debug payload is read with."""
+        return PIDParams(
+            auto_tune=False,
+            kp=60.0,
+            ki=0.01,
+            kd=2000.0,
+            i_min=-100.0,
+            i_max=100.0,
+            min_hold_time_s=0.0,
+        )
+
+    def test_the_payload_carries_the_accumulated_integral(self):
+        """A cycle that integrates reports the accumulator in the payload."""
+        _, debug, new_state = compute_pid(
+            params=self._params(),
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_integral",
+            state=PIDState(),
+        )
+        assert debug["integral"] == new_state.pid_integral
+        assert debug["i"] == debug["integral"]
+
+    def test_a_blocked_integrator_leaves_the_accumulator_where_it_was(self):
+        """A blocked integration reports the i-term without the accumulator moving.
+
+        The output is saturated and the error would keep it saturated, so
+        the conditional anti-windup holds the accumulator at the value it
+        had; the i-term the controller computed is that same held value,
+        and the payload reports both.
+        """
+        state = PIDState(pid_integral=40.0, pid_kp=60.0, pid_ki=0.01, pid_kd=2000.0)
+        _, debug, new_state = compute_pid(
+            params=self._params(),
+            inp_target_temperature=40.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_integral_blocked",
+            state=state,
+        )
+        assert debug["anti_windup_blocked"] is True
+        assert debug["integral"] == 40.0
+        assert debug["i"] == 40.0
+        assert new_state.pid_integral == 40.0
+
+
 class TestPidTimeHandling:
     """Injected timestamps and the integration-step upper bound."""
 

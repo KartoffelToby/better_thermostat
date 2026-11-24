@@ -629,6 +629,18 @@
       },
       "pid_error": {
         "name": "PID Error"
+      },
+      "pid_integral": {
+        "name": "PID Integral"
+      },
+      "pid_i_term": {
+        "name": "PID I-Term"
+      },
+      "pid_slope": {
+        "name": "PID Slope"
+      },
+      "pid_slope_ema": {
+        "name": "PID Slope EMA"
       }
     }
   },

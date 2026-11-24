@@ -55,6 +55,7 @@ class PIDDebugInfo(TypedDict, total=False):
     e_K: float | None
     p: float | None
     i: float | None
+    integral: float | None
     d: float | None
     u: float | None
     kp: float | None
@@ -599,6 +600,7 @@ def compute_pid(
             "e_K": _r(e, 2),
             "p": _r(p_term, 2),
             "i": _r(i_term, 2),
+            "integral": _r(st.pid_integral, 2),
             "d": _r(d_term, 2),
             "u": _r(u, 2),
             "kp": st.pid_kp,

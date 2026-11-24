@@ -31,7 +31,11 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcV2RoomTimeConstantSensor,
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
+    BetterThermostatPidIntegralSensor,
+    BetterThermostatPidITermSensor,
     BetterThermostatPidOutputSensor,
+    BetterThermostatPidSlopeEmaSensor,
+    BetterThermostatPidSlopeSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
     _BtMpcSensorBase,
@@ -662,6 +666,10 @@ class TestPidSensorState:
         [
             (BetterThermostatPidOutputSensor, "u", 42.5),
             (BetterThermostatPidErrorSensor, "e_K", -0.3),
+            (BetterThermostatPidIntegralSensor, "integral", 12.75),
+            (BetterThermostatPidITermSensor, "i", 12.5),
+            (BetterThermostatPidSlopeSensor, "slope_in", -0.009),
+            (BetterThermostatPidSlopeEmaSensor, "slope_ema", -0.003),
         ],
     )
     def test_reads_value_from_debug(self, sensor_class, debug_key, value):
@@ -687,7 +695,14 @@ class TestPidSensorState:
 
     @pytest.mark.parametrize(
         "sensor_class",
-        [BetterThermostatPidOutputSensor, BetterThermostatPidErrorSensor],
+        [
+            BetterThermostatPidOutputSensor,
+            BetterThermostatPidErrorSensor,
+            BetterThermostatPidIntegralSensor,
+            BetterThermostatPidITermSensor,
+            BetterThermostatPidSlopeSensor,
+            BetterThermostatPidSlopeEmaSensor,
+        ],
     )
     def test_unavailable_when_hvac_off(self, sensor_class):
         """PID sensors are unavailable when the thermostat is off."""
@@ -1336,6 +1351,10 @@ class TestDynamicAlgorithmSensors:
         assert {type(s) for s in added} == {
             BetterThermostatPidOutputSensor,
             BetterThermostatPidErrorSensor,
+            BetterThermostatPidIntegralSensor,
+            BetterThermostatPidITermSensor,
+            BetterThermostatPidSlopeSensor,
+            BetterThermostatPidSlopeEmaSensor,
         }
         assert set(tracked.algorithm_sensors) == {
             CalibrationMode.MPC_CALIBRATION,
