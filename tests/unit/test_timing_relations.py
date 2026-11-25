@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.controlling import (
     FAILED_CYCLE_BACKOFF_MAX_S,
     FAILED_CYCLE_WARNING_INTERVAL_S,
     TRV_STATE_SETTLE_S,
+    WRITE_CONFIRM_SETTLE_SECONDS,
 )
 from custom_components.better_thermostat.utils.state_manager import (
     COPY_RETRY_FIRST_S,
@@ -286,3 +287,13 @@ def test_a_failed_quarantine_copy_is_retried_within_the_hour():
     promises that a disk which recovers is used within the hour.
     """
     assert COPY_RETRY_FIRST_S < COPY_RETRY_MAX_S <= timedelta(hours=1).total_seconds()
+
+
+def test_confirmation_settle_outlasts_control_settle():
+    """Watchdog settle outlasts the control cycle settle pause.
+
+    Reports arriving during the control cycle settle pause are replayed at
+    cycle end; keeping the confirmation watchdog open past that pause keeps an
+    optimistic match from erasing the previous setpoint before the replay.
+    """
+    assert WRITE_CONFIRM_SETTLE_SECONDS > TRV_STATE_SETTLE_S

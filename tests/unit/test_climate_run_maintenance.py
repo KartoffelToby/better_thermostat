@@ -24,6 +24,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceDue,
     start_run,
 )
+from custom_components.better_thermostat.trv import UnreadReport
 from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
@@ -81,6 +82,12 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
 async def test_a_setpoint_moved_by_maintenance_is_not_left_as_a_turn(bt):
     """The setpoints maintenance moves are its own, not a turn for a cycle to read."""
     trv = bt.real_trvs["climate.trv"]
+    trv.unread_report = UnreadReport(
+        state_before=State("climate.trv", HVACMode.HEAT, {"temperature": 21.0}),
+        hvac_mode_before=HVACMode.HEAT,
+    )
+    trv.temperature_moved_while_held = True
+    trv.switched_on_during_cycle = True
     trv.held_turn = (
         State("climate.trv", HVACMode.HEAT, {"temperature": 5.0}),
         State("climate.trv", HVACMode.HEAT, {"temperature": 30.0}),
@@ -92,6 +99,85 @@ async def test_a_setpoint_moved_by_maintenance_is_not_left_as_a_turn(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     assert trv.held_turn is None
+    assert trv.unread_report is None
+    assert trv.temperature_moved_while_held is False
+    assert trv.switched_on_during_cycle is False
+
+
+@pytest.mark.asyncio
+async def test_maintenance_restored_setpoint_arms_confirmation_watchdog(bt):
+    """Restoring a setpoint after maintenance watches it before accepting TRV presses."""
+    bt._temperature_lock = asyncio.Lock()
+    trv = bt.real_trvs["climate.trv"]
+    trv.commanded_setpoint = 21.0
+    scheduled: list[str] = []
+
+    def _capture_task(coro, *, name):
+        scheduled.append(name)
+        coro.close()
+        return MagicMock()
+
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_capture_task))
+
+    async def _setpoint_exercise(
+        infos, *, set_temperature_fn, set_hvac_mode_fn, **kwargs
+    ):
+        await set_temperature_fn("climate.trv", 30.0)
+        await set_temperature_fn("climate.trv", 5.0)
+        await set_temperature_fn("climate.trv", 21.0)
+        await set_hvac_mode_fn("climate.trv", HVACMode.OFF)
+
+    async def _fake_set_temperature(_bt, entity_id, temperature):
+        bt.real_trvs[entity_id].commanded_setpoint = temperature
+
+    trv.last_hvac_mode = HVACMode.OFF
+    trv.system_mode_received = True
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _setpoint_exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _fake_set_temperature),
+        patch(f"{_CLIMATE}.adapter_set_hvac_mode", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert trv.commanded_setpoint == 21.0
+    assert trv.echo_setpoint_values() == [21.0]
+    assert trv.target_temperature_received is False
+    assert trv.system_mode_received is False
+    assert "bt_check_target_temp_climate.trv" in scheduled
+    assert "bt_check_system_mode_climate.trv" in scheduled
+
+
+@pytest.mark.asyncio
+async def test_failed_maintenance_restores_previous_commanded_setpoint(bt):
+    """An interrupted maintenance run restores the pre-maintenance commanded setpoint."""
+    bt._temperature_lock = asyncio.Lock()
+    trv = bt.real_trvs["climate.trv"]
+    trv.commanded_setpoint = 21.0
+    trv.target_temperature_received = True
+    bt.task_manager = MagicMock()
+
+    async def _failing_exercise(infos, *, set_temperature_fn, **kwargs):
+        await set_temperature_fn("climate.trv", 30.0)
+        raise RuntimeError("boom")
+
+    async def _fake_set_temperature(_bt, entity_id, temperature):
+        bt.real_trvs[entity_id].commanded_setpoint = temperature
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _failing_exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _fake_set_temperature),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert trv.commanded_setpoint == 21.0
+    assert trv.target_temperature_received is True
+    bt.task_manager.create_task.assert_not_called()
 
 
 @pytest.mark.asyncio

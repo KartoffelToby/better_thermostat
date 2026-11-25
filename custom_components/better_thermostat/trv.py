@@ -287,6 +287,10 @@ class Trv:
     # hides the turn from the state the end of the cycle reads, so the turn
     # is read first.
     held_turn: tuple[State, State] | None = None
+    # Whether the current control cycle sent a mode write that switches this
+    # TRV on from ``off``. While set, multi-step wake-up setpoint reports
+    # during the cycle are judged against off rather than taken as a press.
+    switched_on_during_cycle: bool = False
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
     # ``last_calibration_requested`` is the value asked for before that
@@ -386,6 +390,7 @@ class Trv:
         self.unread_report = None
         self.held_turn = None
         self.temperature_moved_while_held = False
+        self.switched_on_during_cycle = False
 
     def forget_external_temperature_writes(self) -> None:
         """Forget what the quirks last sent the device as the room temperature.
