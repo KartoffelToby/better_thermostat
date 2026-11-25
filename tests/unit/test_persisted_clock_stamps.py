@@ -22,6 +22,9 @@ from typing import get_args, get_type_hints
 from unittest.mock import patch
 
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
+from custom_components.better_thermostat.utils.calibration.disturbance_profile import (
+    DisturbanceProfile,
+)
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
@@ -86,6 +89,7 @@ CLOCK_OF_PERSISTED_STAMP = {
     (ControllerSnapshot, "next_mpc_t_s"): WALL,
     (ControllerSnapshot, "last_mpc_t_s"): WALL,
     (MpcV2ReidData, "fitted_ts"): WALL,
+    (DisturbanceProfile, "last_learned_ts"): WALL,
 }
 """The clock every persisted timestamp is read from, per state class and field.
 
@@ -123,6 +127,7 @@ def test_every_persisted_state_class_is_known():
         MpcV2StateData,
         ControllerSnapshot,
         MpcV2ReidData,
+        DisturbanceProfile,
         ThermalStats,
         FilterState,
     }

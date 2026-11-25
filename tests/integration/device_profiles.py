@@ -14,7 +14,7 @@ reaches more than one of them: which device plays which role in a room, and
 which heads the entry drives together.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
@@ -539,6 +539,11 @@ The valve number sits on the same device as the climate entity, which is
 what makes it discoverable and writable; direct valve control is the one
 calibration strategy that puts a percentage on the wire at all.
 """
+
+MPC_V2_VALVE_TRV = replace(
+    VALVE_TRV, name="valve_trv_mpc_v2", calibration_mode="mpc_v2_calibration"
+)
+"""The same head with MPC v2 choosing the valve opening."""
 
 BOSCH_BTH_RA_VALVE_TRV = DeviceProfile(
     name="bosch_bth_ra_valve_trv",

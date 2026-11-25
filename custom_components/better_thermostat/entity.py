@@ -61,11 +61,12 @@ def last_available_state(
 
 
 def announce_learned_state(hass: HomeAssistant, bt_unique_id: str) -> None:
-    """Tell the thermostat's entities that its learned state may have changed.
+    """Tell the thermostat's entities that a value they show may have changed.
 
-    The PID gains and the auto-tune flag live in the state store and in no
-    attribute of the thermostat, so a change to them alone changes no state
-    the entities showing them could follow.
+    Some values live in no attribute of the thermostat: the PID gains and the
+    auto-tune flag in the state store, the phases of the anomaly region and
+    what its detector makes of the room in the kernel. A change to them alone
+    changes no state the entities showing them could follow.
     """
     async_dispatcher_send(hass, LEARNED_STATE_SIGNAL.format(bt_unique_id))
 

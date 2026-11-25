@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 import math
 import statistics
 
-from .metrics import MetricValues
+from .metrics import MetricValues, TimeSeries
 from .scoring import DimensionScores, UserProfile, compute_scores
 
 
@@ -18,6 +18,7 @@ class ScenarioResult:
     controller: str
     scenario: str
     metrics: MetricValues
+    series: TimeSeries | None = None
 
 
 @dataclass(frozen=True)

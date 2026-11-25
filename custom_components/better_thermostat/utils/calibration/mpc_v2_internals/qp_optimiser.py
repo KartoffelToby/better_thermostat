@@ -201,6 +201,11 @@ class QpParams:
     # setpoint, and a small integral weight — the feed-forward ``u_ss`` carries
     # steady state, so heavy integral action only adds overshoot.
     horizon_steps: int = 12
+    # Hold each planned command over this many fine steps (move blocking).
+    # One step per command is no blocking. A longer horizon blocks its moves
+    # to keep the number of decision variables, see
+    # ``predictive_qp_params``.
+    move_block_steps: int = 1
     # MPC re-plan cadence (seconds). Overridden by the adaptive_step logic
     # below unless ``adaptive_step_s`` is disabled.
     step_s: float = 300.0
@@ -260,7 +265,17 @@ class QpOptimiser:
         """
         self.plant = plant
         self.params = params
-        self.N = params.horizon_steps
+        self.N = max(1, params.horizon_steps)
+        self.block_steps = max(1, params.move_block_steps)
+        self.M = (self.N + self.block_steps - 1) // self.block_steps
+        # The fixed command of each move block becomes the variable of the
+        # condensed QP: ``u = expand · v`` holds ``v_j`` over its block.
+        self._expand = np.zeros((self.N, self.M))
+        for step in range(self.N):
+            self._expand[step, step // self.block_steps] = 1.0
+        # Fine steps each decision is held over; the last block of a horizon
+        # the blocks do not divide is shorter.
+        self._steps_held = self._expand.sum(axis=0)
         self.e_integral_K_min: float = 0.0
         self._L_cumsum = np.tril(np.ones((self.N, self.N)))
         # A daqp failure and a flat fallback of the NumPy solver are each
@@ -331,6 +346,7 @@ class QpOptimiser:
         D_hat_K_per_min: float = 0.0,
         u_max: float = 1.0,
         move_suppression_factor: float = 1.0,
+        D_profile_K_per_min: tuple[float, ...] | None = None,
     ) -> float:
         """Solve the horizon QP and return the first valve command ``u_0``.
 
@@ -346,6 +362,11 @@ class QpOptimiser:
 
         ``move_suppression_factor`` scales the weight against valve moves
         (``w_smooth``) for this plan.
+
+        ``D_profile_K_per_min`` is the predicted disturbance of each future
+        step, in K/min. A shorter profile is padded with its last value and a
+        missing or non-finite entry falls back to ``D_hat_K_per_min``. The
+        plan holds each command over ``move_block_steps`` fine steps.
         """
         u_min = self.params.u_min
         u_max = self.upper_bound(u_max)
@@ -353,6 +374,8 @@ class QpOptimiser:
             u_last = max(u_min, min(u_max, u_last))
         n = self.plant.state_dim
         N = self.N
+        M = self.M
+        profile = None if D_profile_K_per_min is None else tuple(D_profile_K_per_min)
 
         # The operating point and the drift both carry the disturbance
         # estimate, so the prediction settles where ``u_ss`` holds the room.
@@ -370,7 +393,15 @@ class QpOptimiser:
         )
         u_ss = self._steady_input_for(T_sp, T_outdoor, D_hat_K_per_min)
         A, B, d_vec = self.plant.linearised_system(T_outdoor, radiator_operating_point)
-        d_vec = d_vec + np.array([D_hat_K_per_min * self.plant.dt_min, 0.0])
+        fallback_D = D_hat_K_per_min if math.isfinite(D_hat_K_per_min) else 0.0
+        drifts: list[FloatArray] = []
+        last_D = fallback_D
+        for step in range(N):
+            if profile is not None and step < len(profile):
+                candidate = profile[step]
+                last_D = candidate if math.isfinite(candidate) else fallback_D
+            D_step = fallback_D if profile is None else last_D
+            drifts.append(d_vec + np.array([D_step * self.plant.dt_min, 0.0]))
 
         A_pow = [np.eye(n)]
         for _ in range(N):
@@ -390,17 +421,19 @@ class QpOptimiser:
             d_sum = np.zeros(n)
             for i in range(k):
                 Y_T_u[k, i] = float((A_pow[k - 1 - i] @ B).flatten()[0])
-                d_sum = d_sum + A_pow[k - 1 - i] @ d_vec
+                d_sum = d_sum + A_pow[k - 1 - i] @ drifts[i]
             Y_T_d[k] = float(d_sum[0])
 
         x0 = x_pred[:n].astype(float)
         R_traj = np.full(N + 1, T_sp)
         track_const = Y_T_x @ x0 + Y_T_d - R_traj
 
-        D_diff = np.eye(N)
-        for k in range(1, N):
+        # One decision per move block: the block's command is held over its
+        # fine steps, so the smoothing penalty sees only block transitions.
+        D_diff = np.eye(M)
+        for k in range(1, M):
             D_diff[k, k - 1] = -1.0
-        b_du = np.zeros(N)
+        b_du = np.zeros(M)
         b_du[0] = u_last
 
         w_c = self.params.w_comfort
@@ -411,7 +444,8 @@ class QpOptimiser:
         dt_min = self.plant.dt_min
         L = self._L_cumsum
         Y_T_x_N = Y_T_x[:N]
-        Y_T_u_N = Y_T_u[:N]
+        Y_T_u_dec = Y_T_u @ self._expand
+        Y_T_u_N = Y_T_u_dec[:N]
         Y_T_d_N = Y_T_d[:N]
         I_T_u = dt_min * (L @ Y_T_u_N)
         I_const = self.e_integral_K_min * np.ones(N) + dt_min * (
@@ -420,26 +454,29 @@ class QpOptimiser:
 
         # Hessian of the QP cost, summed from the four squared-residual terms.
         # ``H_raw`` is symmetrised into ``H`` and later doubled into
-        # ``H_scaled`` for DAQP's ½ convention (see the note below).
+        # ``H_scaled`` for DAQP's ½ convention (see the note below). The cost
+        # is the one over the fine steps with ``u = expand · v`` put in: the
+        # effort of a decision counts once per fine step it is held over,
+        # and the fine-step moves are the moves between blocks.
         H_raw = (
-            w_c * (Y_T_u.T @ Y_T_u)
-            + w_e * np.eye(N)
+            w_c * (Y_T_u_dec.T @ Y_T_u_dec)
+            + w_e * np.diag(self._steps_held)
             + w_du * (D_diff.T @ D_diff)
             + w_i * (I_T_u.T @ I_T_u)
         )
         H = 0.5 * (H_raw + H_raw.T)
         g = (
-            w_c * (Y_T_u.T @ track_const)
-            - w_e * u_ss * np.ones(N)
+            w_c * (Y_T_u_dec.T @ track_const)
+            - w_e * u_ss * self._steps_held
             - w_du * (D_diff.T @ b_du)
             + w_i * (I_T_u.T @ I_const)
         )
 
         delta_u_max = self.params.delta_u_max
-        A_box = np.eye(N)
+        A_box = np.eye(M)
         A_con_dense = np.vstack([A_box, D_diff])
-        lb = np.concatenate([np.full(N, u_min), -delta_u_max + b_du])
-        ub = np.concatenate([np.full(N, u_max), +delta_u_max + b_du])
+        lb = np.concatenate([np.full(M, u_min), -delta_u_max + b_du])
+        ub = np.concatenate([np.full(M, u_max), +delta_u_max + b_du])
 
         # DAQP minimises ½·xᵀ·H·x + fᵀ·x. The cost is a sum of squared
         # residuals J(u) = w_c‖Y·u + c‖² + w_e‖u − u_ss‖² + w_du‖D·u − b‖² +
@@ -468,6 +505,7 @@ class QpOptimiser:
             _SolverBounds(
                 u_last=u_last, u_min=u_min, u_max=u_max, delta_u_max=delta_u_max
             ),
+            M,
         )
         # ``x[0]`` is a numpy scalar; convert once to a plain float so the
         # caller doesn't propagate numpy types into JSON-bound state.
@@ -484,7 +522,11 @@ class QpOptimiser:
         )
 
     def _solve_portable(
-        self, hessian: FloatArray, gradient: FloatArray, bounds: _SolverBounds
+        self,
+        hessian: FloatArray,
+        gradient: FloatArray,
+        bounds: _SolverBounds,
+        count: int,
     ) -> FloatArray:
         """Solve the small convex QP with a NumPy interior-point method.
 
@@ -506,7 +548,7 @@ class QpOptimiser:
         last command. Either event is logged at WARNING the first time an
         optimiser meets it and at DEBUG after that.
         """
-        n = self.N
+        n = count
         u_last = bounds.u_last
         u_min = bounds.u_min
         u_max = bounds.u_max

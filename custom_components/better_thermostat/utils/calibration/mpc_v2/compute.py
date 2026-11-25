@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 import math
 from time import time
 
+from ..disturbance_forecast import build_predicted_disturbance
 from .controller import MpcV2Controller
 from .io import MpcV2Input, MpcV2Output
 from .params import MpcV2Params
@@ -143,6 +145,20 @@ def compute_mpc_v2(
     # fractional cap still admits.
     cap_percent = int(max(0.0, min(100.0, inp.max_opening_percent)))
 
+    predicted = inp.predicted_disturbance_K_per_min
+    if (
+        not predicted
+        and inp.disturbance_profile is not None
+        and inp.now_wall is not None
+    ):
+        predicted = build_predicted_disturbance(
+            inp.disturbance_profile,
+            inp.hourly_forecast,
+            now=inp.now_wall,
+            steps=state.controller.params.qp.horizon_steps,
+            step_seconds=state.controller.params.qp.step_s,
+        )
+
     u, diag = state.controller.step(
         t_s=now,
         T_room=inp.room_temperature,
@@ -152,7 +168,10 @@ def compute_mpc_v2(
         u_max=cap_percent / 100.0,
         learning_paused=inp.learning_paused,
         room_reading_from_trvs=inp.room_temperature_from_trvs,
+        predicted_disturbance_K_per_min=predicted,
     )
+    if predicted:
+        diag = replace(diag, predicted_disturbance_kelvin_per_min=predicted[0])
 
     # Round half up. The built-in ``round`` is half to even, so it sends every
     # second exact half percent down (12.5 → 12) and the next one up (13.5 →

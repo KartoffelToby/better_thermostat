@@ -5,7 +5,11 @@ import json
 
 import pytest
 
-from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
+from custom_components.better_thermostat.core.desired import (
+    AnomalyCode,
+    DesiredState,
+    TrvDesired,
+)
 from custom_components.better_thermostat.core.snapshot import HvacMode
 
 
@@ -59,3 +63,32 @@ class TestDesiredState:
         assert restored["call_for_heat"] is True
         assert restored["trvs"]["climate.trv"]["setpoint"] == 21.5
         assert restored["trvs"]["climate.trv"]["hvac_mode"] == "heat"
+
+    def test_anomaly_collections_normalise_deterministically(self):
+        """Unsorted or duplicate anomaly codes normalise to canonical tuples."""
+        desired = DesiredState(
+            anomalies=(
+                AnomalyCode.VALVE_STUCK_OPEN,
+                AnomalyCode.NO_HEAT_DELIVERY,
+                AnomalyCode.VALVE_STUCK_OPEN,
+            ),
+            trv_anomalies={
+                "climate.b": (
+                    AnomalyCode.VALVE_STUCK_OPEN,
+                    AnomalyCode.NO_HEAT_DELIVERY,
+                ),
+                "climate.empty": (),
+            },
+        )
+        assert desired.anomalies == (
+            AnomalyCode.NO_HEAT_DELIVERY,
+            AnomalyCode.VALVE_STUCK_OPEN,
+        )
+        assert dict(desired.trv_anomalies) == {
+            "climate.b": (AnomalyCode.NO_HEAT_DELIVERY, AnomalyCode.VALVE_STUCK_OPEN)
+        }
+        payload = json.loads(json.dumps(asdict(desired)))
+        assert payload["anomalies"] == ["no_heat_delivery", "valve_stuck_open"]
+        assert payload["trv_anomalies"] == {
+            "climate.b": ["no_heat_delivery", "valve_stuck_open"]
+        }

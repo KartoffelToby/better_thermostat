@@ -69,6 +69,8 @@ async def async_setup_entry(
     switches: list[SwitchEntity] = [
         BetterThermostatReleaseDevicesSwitch(bt_climate),
         BetterThermostatPauseLearningSwitch(bt_climate),
+        BetterThermostatAnomalyDetectionSwitch(bt_climate),
+        BetterThermostatAnomalySuppressionSwitch(bt_climate),
     ]
     switch_unique_ids: dict[str, SwitchRef] = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
@@ -441,16 +443,9 @@ def restored_child_lock(
     return _switch_state_wins(saved.state if saved else None, extra, configured)
 
 
-def restored_window_detection(hass: HomeAssistant, bt_unique_id: str) -> bool | None:
-    """Return the window detection the thermostat's switch restores to.
-
-    ``None`` when the switch has no saved state. Read before the switch
-    itself is set up, so the thermostat's first control cycle already runs
-    with the restored setting.
-    """
-    entity_id = er.async_get(hass).async_get_entity_id(
-        "switch", DOMAIN, f"{bt_unique_id}_window_detection"
-    )
+def _restored_switch_state(hass: HomeAssistant, unique_id: str) -> bool | None:
+    """Return the boolean state a switch entity restores to, or ``None``."""
+    entity_id = er.async_get(hass).async_get_entity_id("switch", DOMAIN, unique_id)
     if entity_id is None:
         return None
     restore_data = restore_state.async_get(hass)
@@ -462,6 +457,122 @@ def restored_window_detection(hass: HomeAssistant, bt_unique_id: str) -> bool | 
     if saved is None or saved.state not in (STATE_ON, STATE_OFF):
         return None
     return saved.state == STATE_ON
+
+
+def restored_window_detection(hass: HomeAssistant, bt_unique_id: str) -> bool | None:
+    """Return the window detection the thermostat's switch restores to.
+
+    ``None`` when the switch has no saved state. Read before the switch
+    itself is set up, so the thermostat's first control cycle already runs
+    with the restored setting.
+    """
+    return _restored_switch_state(hass, f"{bt_unique_id}_window_detection")
+
+
+def restored_anomaly_detection(hass: HomeAssistant, bt_unique_id: str) -> bool | None:
+    """Return the anomaly detection setting the thermostat's switch restores to."""
+    return _restored_switch_state(hass, f"{bt_unique_id}_anomaly_detection")
+
+
+def restored_anomaly_suppression(hass: HomeAssistant, bt_unique_id: str) -> bool | None:
+    """Return the suspected-window suppression setting the switch restores to."""
+    return _restored_switch_state(hass, f"{bt_unique_id}_anomaly_suppression")
+
+
+class BetterThermostatAnomalyDetectionSwitch(
+    FollowsThermostat, SwitchEntity, RestoresLastAvailableState
+):
+    """Switch that enables sensorless heating fault and anomaly detection."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "anomaly_detection"
+
+    def __init__(self, bt_climate: BetterThermostat) -> None:
+        """Initialize the switch."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_anomaly_detection"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+        last_state = await self.async_get_last_available_state()
+        if last_state is not None and last_state.state in (STATE_ON, STATE_OFF):
+            self._bt_climate.set_anomaly_detection(last_state.state == STATE_ON)
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return whether anomaly detection is enabled."""
+        return self._bt_climate.kernel_state.anomaly_detection
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable anomaly detection."""
+        self._bt_climate.set_anomaly_detection(True)
+        self.async_write_ha_state()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable anomaly detection."""
+        self._bt_climate.set_anomaly_detection(False)
+        self.async_write_ha_state()
+
+
+class BetterThermostatAnomalySuppressionSwitch(
+    FollowsThermostat, SwitchEntity, RestoresLastAvailableState
+):
+    """Switch that suppresses heating during a suspected open window."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "anomaly_suppression"
+
+    def __init__(self, bt_climate: BetterThermostat) -> None:
+        """Initialize the switch."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_anomaly_suppression"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+        last_state = await self.async_get_last_available_state()
+        if last_state is not None and last_state.state in (STATE_ON, STATE_OFF):
+            self._bt_climate.set_anomaly_suppression(last_state.state == STATE_ON)
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return whether suspected-window suppression is enabled."""
+        return self._bt_climate.kernel_state.anomaly_suppression
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable suspected-window heating suppression."""
+        self._bt_climate.set_anomaly_suppression(True)
+        self.async_write_ha_state()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable suspected-window heating suppression."""
+        self._bt_climate.set_anomaly_suppression(False)
+        self.async_write_ha_state()
 
 
 class BetterThermostatWindowDetectionSwitch(

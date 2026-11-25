@@ -54,6 +54,12 @@ from .desired import (
     Suppression,
     TrvDesired,
 )
+from .fsm.anomaly import (
+    DEFAULT_ANOMALY_PARAMS,
+    AnomalyState,
+    step as anomaly_step,
+    visible_codes as anomaly_visible_codes,
+)
 from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState, tick as lifecycle_tick
 from .fsm.maintenance import DUE_AT_FIRST_TICK, MaintenanceIdle, MaintenanceState
@@ -98,7 +104,10 @@ class KernelState:
     mode: ModeState = field(default_factory=ModeState)
     control_mode: ControlModeState = field(default_factory=ControlModeState)
     reachability: Mapping[str, ReachabilityState] = field(default_factory=dict)
+    anomaly: AnomalyState = field(default_factory=AnomalyState)
     window_detection: bool = True
+    anomaly_detection: bool = False
+    anomaly_suppression: bool = False
     # Watchdog heartbeat: monotonic time of the last completed control pass.
     last_control_monotonic: float | None = None
 
@@ -175,6 +184,149 @@ def _with_mode(
     }
 
 
+def suspected_window_suppresses(state: KernelState, now_monotonic: float) -> bool:
+    """Return whether a suspected open window keeps the room unheated.
+
+    The rapid-loss finding suppresses heating only while it gates: once it
+    has run for its liveness bound it stays visible as ``EXPIRED`` and the
+    room is heated again, so a finding that never ends cannot leave a room
+    cold for good.
+
+    Parameters
+    ----------
+    state : KernelState
+        Kernel state carrying the anomaly region and the user's two switches.
+    now_monotonic : float
+        Monotonic time the liveness bound is checked against.
+
+    Returns
+    -------
+    bool
+        ``True`` while anomaly detection and its suppression are on and the
+        rapid-loss finding gates.
+    """
+    return (
+        state.anomaly_detection
+        and state.anomaly_suppression
+        and state.anomaly.rapid_loss.is_gating(
+            now_monotonic, DEFAULT_ANOMALY_PARAMS.rapid_loss_liveness_seconds
+        )
+    )
+
+
+def _pre_anomaly_block(
+    snapshot: WorldSnapshot, state: KernelState
+) -> HeatingBlock | None:
+    """Return the heating block before stepping the anomaly region."""
+    if snapshot.devices_released or (
+        snapshot.trvs and all(trv.released for trv in snapshot.trvs.values())
+    ):
+        return HeatingBlock.DEVICES_RELEASED
+    if state.lifecycle.startup_running:
+        return HeatingBlock.STARTUP
+    if state.maintenance.is_blocking(snapshot.now_monotonic):
+        return HeatingBlock.VALVE_MAINTENANCE
+    if state.mode.hvac_mode == HvacMode.OFF:
+        return HeatingBlock.HVAC_OFF
+    if state.window_detection and (
+        state.window.effective_open or state.door.effective_open
+    ):
+        return HeatingBlock.WINDOW if state.window.effective_open else HeatingBlock.DOOR
+    if suspected_window_suppresses(state, snapshot.now_monotonic):
+        return HeatingBlock.SUSPECTED_WINDOW
+    if not snapshot.call_for_heat:
+        return HeatingBlock.NO_CALL_FOR_HEAT
+    return None
+
+
+def _cascade_desired(
+    snapshot: WorldSnapshot, state: KernelState, addressed: list[str]
+) -> DesiredState:
+    """Evaluate the precedence cascade before attaching anomaly diagnostics."""
+    if snapshot.devices_released:
+        # Release: the devices are the user's. The regions above keep
+        # tracking, so the cycle after the release decides on what holds
+        # by then.
+        return DesiredState(
+            call_for_heat=snapshot.call_for_heat,
+            devices_released=True,
+            heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
+        )
+
+    if snapshot.trvs and all(trv.released for trv in snapshot.trvs.values()):
+        # Every TRV is released on its own: none is commanded, as with the
+        # room released, but the cooler is no TRV and stays under control.
+        return DesiredState(
+            call_for_heat=snapshot.call_for_heat,
+            heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
+        )
+
+    # Lifecycle gate: no intent while starting up, and maintenance pre-empts
+    # control entirely (it owns the valves). A maintenance run that exceeded
+    # its maximum runtime stops blocking — the region's liveness invariant.
+    gate = None
+    if state.lifecycle.startup_running:
+        gate = HeatingBlock.STARTUP
+    elif state.maintenance.is_blocking(snapshot.now_monotonic):
+        gate = HeatingBlock.VALVE_MAINTENANCE
+    if gate is not None:
+        return DesiredState(
+            call_for_heat=snapshot.call_for_heat, heating_blocked_by=gate
+        )
+
+    if state.mode.hvac_mode == HvacMode.OFF:
+        return DesiredState(
+            call_for_heat=False,
+            trvs=_with_mode(addressed, HvacMode.OFF),
+            heating_blocked_by=HeatingBlock.HVAC_OFF,
+        )
+
+    if state.window_detection and (
+        state.window.effective_open or state.door.effective_open
+    ):
+        # An open window or door turns every TRV off without touching the
+        # mode. Both regions debounce independently; the window reason wins
+        # the annunciation when both are open. With window detection off the
+        # tier is masked and control falls through to the heat demand.
+        suppression = (
+            Suppression.WINDOW if state.window.effective_open else Suppression.DOOR
+        )
+        return DesiredState(
+            call_for_heat=snapshot.call_for_heat,
+            trvs=_with_mode(addressed, HvacMode.OFF, suppression),
+            heating_blocked_by=SUPPRESSION_BLOCKS[suppression],
+        )
+
+    if suspected_window_suppresses(state, snapshot.now_monotonic):
+        return DesiredState(
+            call_for_heat=snapshot.call_for_heat,
+            trvs=_with_mode(addressed, HvacMode.OFF, Suppression.SUSPECTED_WINDOW),
+            heating_blocked_by=SUPPRESSION_BLOCKS[Suppression.SUSPECTED_WINDOW],
+        )
+
+    if not snapshot.call_for_heat:
+        return DesiredState(
+            call_for_heat=False,
+            trvs=_with_mode(addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT),
+            heating_blocked_by=SUPPRESSION_BLOCKS[Suppression.NO_CALL_FOR_HEAT],
+        )
+
+    # Heating rung. Under the ladder's HOLD rung no usable temperature
+    # exists, so no calibration runs — but the intent still carries the
+    # raw user target (passthrough): the device setpoint stays locked on
+    # the last known target, re-sent if the device loses it, with the
+    # safety hull enforcing the frost floor at the command boundary.
+    heating = {
+        entity_id: TrvDesired(
+            entity_id=entity_id,
+            hvac_mode=state.mode.hvac_mode,
+            setpoint=snapshot.heat_target_temperature,
+        )
+        for entity_id in addressed
+    }
+    return DesiredState(call_for_heat=True, trvs=heating)
+
+
 def decide(
     snapshot: WorldSnapshot, state: KernelState
 ) -> tuple[DesiredState, KernelState]:
@@ -219,96 +371,23 @@ def decide(
         },
     )
 
-    if snapshot.devices_released:
-        # Release: the devices are the user's. The regions above keep
-        # tracking, so the cycle after the release decides on what holds
-        # by then.
-        return (
-            DesiredState(
-                call_for_heat=snapshot.call_for_heat,
-                devices_released=True,
-                heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
-            ),
-            state,
-        )
-
-    if snapshot.trvs and all(trv.released for trv in snapshot.trvs.values()):
-        # Every TRV is released on its own: none is commanded, as with the
-        # room released, but the cooler is no TRV and stays under control.
-        return (
-            DesiredState(
-                call_for_heat=snapshot.call_for_heat,
-                heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
-            ),
-            state,
-        )
-
-    # Lifecycle gate: no intent while starting up, and maintenance pre-empts
-    # control entirely (it owns the valves). A maintenance run that exceeded
-    # its maximum runtime stops blocking — the region's liveness invariant.
-    gate = None
-    if state.lifecycle.startup_running:
-        gate = HeatingBlock.STARTUP
-    elif state.maintenance.is_blocking(snapshot.now_monotonic):
-        gate = HeatingBlock.VALVE_MAINTENANCE
-    if gate is not None:
-        return (
-            DesiredState(call_for_heat=snapshot.call_for_heat, heating_blocked_by=gate),
-            state,
-        )
-
     addressed = _addressed(snapshot)
-
-    if state.mode.hvac_mode == HvacMode.OFF:
-        return (
-            DesiredState(
-                call_for_heat=False,
-                trvs=_with_mode(addressed, HvacMode.OFF),
-                heating_blocked_by=HeatingBlock.HVAC_OFF,
-            ),
-            state,
+    pre_block = _pre_anomaly_block(snapshot, state)
+    anomaly = (
+        anomaly_step(
+            state.anomaly,
+            snapshot,
+            control_mode=state.control_mode.mode,
+            heating_blocked_by=pre_block,
+            contact_open=state.window.effective_open or state.door.effective_open,
+            addressed_trvs=addressed,
         )
-
-    if state.window_detection and (
-        state.window.effective_open or state.door.effective_open
-    ):
-        # An open window or door turns every TRV off without touching the
-        # mode. Both regions debounce independently; the window reason wins
-        # the annunciation when both are open. With window detection off the
-        # tier is masked and control falls through to the heat demand.
-        suppression = (
-            Suppression.WINDOW if state.window.effective_open else Suppression.DOOR
-        )
-        return (
-            DesiredState(
-                call_for_heat=snapshot.call_for_heat,
-                trvs=_with_mode(addressed, HvacMode.OFF, suppression),
-                heating_blocked_by=SUPPRESSION_BLOCKS[suppression],
-            ),
-            state,
-        )
-
-    if not snapshot.call_for_heat:
-        return (
-            DesiredState(
-                call_for_heat=False,
-                trvs=_with_mode(addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT),
-                heating_blocked_by=SUPPRESSION_BLOCKS[Suppression.NO_CALL_FOR_HEAT],
-            ),
-            state,
-        )
-
-    # Heating rung. Under the ladder's HOLD rung no usable temperature
-    # exists, so no calibration runs — but the intent still carries the
-    # raw user target (passthrough): the device setpoint stays locked on
-    # the last known target, re-sent if the device loses it, with the
-    # safety hull enforcing the frost floor at the command boundary.
-    heating = {
-        entity_id: TrvDesired(
-            entity_id=entity_id,
-            hvac_mode=state.mode.hvac_mode,
-            setpoint=snapshot.heat_target_temperature,
-        )
-        for entity_id in addressed
-    }
-    return DesiredState(call_for_heat=True, trvs=heating), state
+        if state.anomaly_detection
+        else AnomalyState()
+    )
+    state = replace(state, anomaly=anomaly)
+    desired = _cascade_desired(snapshot, state, addressed)
+    anomalies, trv_anomalies = anomaly_visible_codes(anomaly)
+    if anomalies or trv_anomalies:
+        desired = replace(desired, anomalies=anomalies, trv_anomalies=trv_anomalies)
+    return desired, state

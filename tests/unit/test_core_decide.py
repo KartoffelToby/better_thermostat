@@ -34,6 +34,7 @@ class TestHeatingBlock:
         assert dict(SUPPRESSION_BLOCKS) == {
             Suppression.WINDOW: HeatingBlock.WINDOW,
             Suppression.DOOR: HeatingBlock.DOOR,
+            Suppression.SUSPECTED_WINDOW: HeatingBlock.SUSPECTED_WINDOW,
             Suppression.NO_CALL_FOR_HEAT: HeatingBlock.NO_CALL_FOR_HEAT,
         }
         assert all(
@@ -50,6 +51,7 @@ class TestHeatingBlock:
             "hvac_off",
             "window",
             "door",
+            "suspected_window",
             "no_call_for_heat",
         ]
 

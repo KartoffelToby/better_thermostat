@@ -25,7 +25,8 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.helpers.event import async_track_state_change_event
 
 from . import BetterThermostatConfigEntry
-from .entity import remove_unclaimed_registry_entries
+from .core.fsm.anomaly import ParasiticLossWatch
+from .entity import FollowsThermostat, remove_unclaimed_registry_entries
 from .number import BetterThermostatPIDNumber, BetterThermostatPresetNumber
 from .switch import (
     BetterThermostatChildLockSwitch,
@@ -183,7 +184,9 @@ async def _setup_algorithm_sensors(
                 BetterThermostatMpcV2VirtualTempSensor(bt_climate),
                 BetterThermostatMpcV2CouplingSensor(bt_climate),
                 BetterThermostatMpcV2DisturbanceSensor(bt_climate),
+                BetterThermostatMpcV2PredictedDisturbanceSensor(bt_climate),
                 BetterThermostatMpcV2RoomTimeConstantSensor(bt_climate),
+                BetterThermostatSustainedHeatLossDetectionSensor(bt_climate),
             ],
         )
         algorithm_sensors.extend(mpc_v2_sensors)
@@ -725,7 +728,11 @@ class _BtSensorBase(SensorEntity):
 
 type MpcSensorKey = Literal["mpc_virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"]
 type MpcV2SensorKey = Literal[
-    "T_room_hat", "coupling_rad_room", "D_hat_K_per_min", "tau_room_min"
+    "T_room_hat",
+    "coupling_rad_room",
+    "D_hat_K_per_min",
+    "tau_room_min",
+    "predicted_disturbance_kelvin_per_min",
 ]
 type PidSensorKey = Literal["u", "e_K"]
 
@@ -1031,6 +1038,16 @@ class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
     _shared_unique_id_suffix = "mpc_loss"
 
 
+class BetterThermostatMpcV2PredictedDisturbanceSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 predicted exogenous heat gain."""
+
+    _attr_translation_key = "mpc_v2_predicted_disturbance"
+    _attr_native_unit_of_measurement = "K/min"
+    _v2_debug_key = "predicted_disturbance_kelvin_per_min"
+    _unique_id_suffix = "mpc_v2_predicted_disturbance"
+    _shared_unique_id_suffix = "mpc_v2_predicted_disturbance"
+
+
 class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 room time constant."""
 
@@ -1040,6 +1057,62 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     _v2_debug_key = "tau_room_min"
     _unique_id_suffix = "mpc_v2_room_time_constant"
     _shared_unique_id_suffix = "mpc_ka"
+
+
+class BetterThermostatSustainedHeatLossDetectionSensor(
+    _BtSensorBase, FollowsThermostat
+):
+    """Sensor that says what the sustained heat loss detector makes of the room.
+
+    A detector that reports nothing is reading a room without a loss, not
+    reading the room at all, or reading a loss it does not count because
+    the room stands above its target. The anomaly alone shows none of the
+    three, so this sensor names the one that holds.
+
+    Only the MPC v2 observer feeds the detector, so the sensor exists for
+    the rooms MPC v2 controls. While anomaly detection is off nothing
+    watches the room and the sensor is unavailable.
+    """
+
+    _attr_translation_key = "sustained_heat_loss_detection"
+    _unique_id_suffix = "sustained_heat_loss_detection"
+    _attr_state_class = None
+    _attr_options = [watch.value for watch in ParasiticLossWatch]
+
+    # SensorEntity types _attr_device_class as SensorDeviceClass | None and the
+    # Entity base reached through FollowsThermostat as str | None, so no
+    # assignment to it satisfies both; the property is declared by
+    # SensorEntity alone.
+    @property
+    @override
+    def device_class(self) -> SensorDeviceClass:
+        """Return the enumeration device class."""
+        return SensorDeviceClass.ENUM
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Follow the thermostat, and the changes its state does not carry.
+
+        The watch is no attribute of the thermostat, so a change of it alone
+        is announced; the value is read when the sensor is published.
+        """
+        self._follow_thermostat()
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Return whether the detector watches the room."""
+        return (
+            self._bt_climate._available
+            and self._bt_climate.anomaly_evidence.parasitic_loss_watch is not None
+        )
+
+    @property
+    @override
+    def native_value(self) -> str | None:
+        """Return the watch of the last committed cycle."""
+        watch = self._bt_climate.anomaly_evidence.parasitic_loss_watch
+        return None if watch is None else watch.value
 
 
 class BetterThermostatPidOutputSensor(_BtPidSensorBase):

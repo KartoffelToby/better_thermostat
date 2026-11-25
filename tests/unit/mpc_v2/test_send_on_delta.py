@@ -430,6 +430,7 @@ def test_the_plan_weighs_valve_moves_by_the_learned_threshold(
         D_hat_K_per_min: float,
         u_max: float,
         move_suppression_factor: float,
+        D_profile_K_per_min: tuple[float, ...] | None = None,
     ) -> float:
         seen.append(move_suppression_factor)
         return solve(
@@ -440,6 +441,7 @@ def test_the_plan_weighs_valve_moves_by_the_learned_threshold(
             D_hat_K_per_min=D_hat_K_per_min,
             u_max=u_max,
             move_suppression_factor=move_suppression_factor,
+            D_profile_K_per_min=D_profile_K_per_min,
         )
 
     monkeypatch.setattr(controller.optimiser, "solve", spy)

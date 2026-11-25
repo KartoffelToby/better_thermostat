@@ -115,6 +115,48 @@ These sensors exist for every device.
 | Heating Power | K/min | How fast the room warms up while it heats, as learned from past heating cycles. |
 | Heat Loss | K/min | How fast the room cools down while it does not heat, as learned from past idle periods. |
 
+### Sustained heat loss detection
+
+**Sustained heat loss detection** says what the detector behind the **Sustained heat loss** binary sensor makes of the room. A detector that reports nothing can mean three things, and this sensor tells them apart. It exists only while at least one TRV of the device uses the MPC v2 calibration mode, and it is unavailable while the **Anomaly Detection** switch is off.
+
+| State | What it means |
+| --- | --- |
+| Monitoring | The detector reads the room and sees no loss. |
+| Paused | The detector does not read the room. A window or door is open, or was within the last 15 minutes; an open window was suspected within the last 15 minutes; Better Thermostat is starting; the devices are released; a sensor the thermostat needs is unavailable; or the MPC v2 observer has no fresh reading. |
+| Loss seen, room above target | The observer reads a loss, and the room is more than 0.1 K above its target. Such a room is not short of heat, so the loss is not counted: it is the room cooling toward its target, or a wall taking up heat. A loss that is still there once the room is back at its target is checked then. A door that is opened during a setback is therefore found only after the room has cooled to its new target. |
+| Checking | A loss is suspected. It is reported once it has lasted 15 minutes. |
+| Detected | The anomaly is reported, and **Sustained heat loss** is on. |
+
+## Binary sensors
+
+### Anomalies
+
+These sensors show what [anomaly detection](/faq/anomaly-detection/) found, one sensor for each anomaly. A sensor is on while the thermostat lists its anomaly in the `anomalies` attribute. While the **Anomaly Detection** switch is off nothing watches the room and the sensors are unavailable: off would read as a room without a problem.
+
+| Sensor | On while | Attributes |
+| --- | --- | --- |
+| Suspected open window | The room loses heat far faster than it does on its own, and no window or door sensor explains it. | `phase`, `since` |
+| Sustained heat loss | The room loses more heat than usual over a longer time, as through an open door to a colder room. Exists only while at least one TRV of the device uses the MPC v2 calibration mode. | `phase`, `since` |
+| No heat delivery | Heating is asked for and does not arrive: the whole room stays cold, or one radiator does while another warms up. | `trvs`, `since` |
+| Valve stuck open | A radiator keeps heating the room although its valve is shut. | `trvs`, `since` |
+
+`since` is the moment the anomaly was first reported, and empty while the sensor is off. It does not survive a restart of Home Assistant: the detectors start over then, and a problem that is still there is found again.
+
+`phase` is the state of the detector: `clear`, `suspect` while a finding is being checked, `active`, `recovering` once the signs of it are gone, and `expired`. An expired anomaly stays listed and no longer holds learning or pauses heating.
+
+`trvs` lists the TRVs the anomaly was found on. For **No heat delivery** an empty list means the whole room: look at the heat source, not at a single radiator.
+
+### Heat sources
+
+These sensors exist only while at least one TRV of the device uses the MPC v2 calibration mode: without it nothing measures the room's heat balance. Switching the last TRV away from MPC v2 removes them, and switching back brings them back.
+
+| Sensor | What it shows |
+| --- | --- |
+| Additional heat source detected | On while the room gains heat that the radiator does not explain: the sun through the window, a lit fireplace, an open door to a warmer room. |
+| Unexpected heat loss detected | On while the room loses heat that the radiator does not explain: an open window, a draught, a cold wall. |
+
+The MPC v2 observer measures both against the room's own baseline, so a heat source that has been there for days is part of that baseline and no longer counts as a finding. One that appears now is reported until the baseline has caught up with it.
+
 ## Algorithm sensors
 
 These sensors show the internal values of a calibration algorithm. They exist only while at least one TRV of the device uses that algorithm, and switching the last TRV away from it removes them. There is one set per device; with several TRVs on the same algorithm, the sensor shows the value of the first TRV that reports one. While a window or door is open, the thermostat is off or Better Thermostat itself is unavailable, they are unavailable.
@@ -137,6 +179,7 @@ On new installations these sensors start disabled. Enable the ones you want to w
 | MPC v2 Virtual Temperature | system temperature unit | The room temperature the MPC v2 observer estimates from the sensor readings and its room model. |
 | MPC v2 Coupling | none | How strongly the radiator heats the room, relative to how strongly the room loses heat to the outside. The room model starts at 1. |
 | MPC v2 Disturbance | K/min | Heat the room model does not explain, such as sun, people or cooking. Positive values mean extra heat, negative values extra loss. |
+| MPC v2 Predicted Disturbance | K/min | The gain the learned disturbance profile expects for the current step, including the solar part from the weather forecast. Empty while *Predictive disturbance learning* is off. |
 | MPC v2 Room Time Constant | min | How slowly the room follows a change in heating. A larger room, or one that holds its heat better, has a longer time constant. The *MPC v2 room size* option sets where it starts. |
 
 ### PID Controller

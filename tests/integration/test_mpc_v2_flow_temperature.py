@@ -4,7 +4,6 @@ The settings form offers no flow temperature. An entry that stores one runs
 on the default all the same, and the next save of the options drops it.
 """
 
-from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -16,7 +15,6 @@ from custom_components.better_thermostat.utils.calibration.plant_preset import (
 from custom_components.better_thermostat.utils.const import (
     CONF_TEMPERATURE_SENSOR,
     CONF_THERMOSTAT,
-    CalibrationMode,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
@@ -33,15 +31,9 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, VALVE_TRV
+from .device_profiles import GENERIC_HEAT_TRV, MPC_V2_VALVE_TRV
 
 STORED_KEY = "mpc_v2_flow_temperature"
-
-MPC_V2_VALVE_TRV = replace(
-    VALVE_TRV,
-    name="valve_trv_mpc_v2",
-    calibration_mode=CalibrationMode.MPC_V2_CALIBRATION.value,
-)
 
 
 async def test_the_settings_form_offers_no_flow_temperature(hass):

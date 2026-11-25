@@ -84,6 +84,7 @@ from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
 from .core.desired import DesiredState, HeatingBlock
+from .core.fsm.anomaly import AnomalyState, visible_codes as anomaly_visible_codes
 from .core.fsm.control_mode import LADDER_TICK_S, ControlMode, start_on_rung
 from .core.fsm.lifecycle import (
     startup_finished as lifecycle_startup_finished,
@@ -134,14 +135,23 @@ from .model_fixes.model_quirks import (
     quirk_ignores_calibration_offset,
 )
 from .model_fixes.types import ExternalTemperatureQuirk
-from .switch import restored_child_lock, restored_window_detection
+from .switch import (
+    restored_anomaly_detection,
+    restored_anomaly_suppression,
+    restored_child_lock,
+    restored_window_detection,
+)
 from .trv import Trv
 from .utils.advanced_flags import advanced_flag
+from .utils.anomaly_evidence import AnomalyEvidenceTracker
+from .utils.anomaly_repairs import sync_anomaly_repairs_and_actions
+from .utils.calibration.disturbance_forecast import HourlyForecastPoint
 from .utils.calibration.pid import PIDParams, resolve_unique_id
 from .utils.calibration.state_key import StateKey, format_bucket, round_to_bucket
 from .utils.clock import SystemClock
 from .utils.const import (
     ATTR_STATE_ACTIVE_OVERRIDES,
+    ATTR_STATE_ANOMALIES,
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_DEGRADED_FOR_SECONDS,
@@ -161,6 +171,7 @@ from .utils.const import (
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_RELEASED_TRVS,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
+    ATTR_STATE_TRV_ANOMALIES,
     ATTR_STATE_WINDOW_DETECTION,
     ATTR_STATE_WINDOW_OPEN,
     CONF_AVAILABILITY_GUARD,
@@ -1392,6 +1403,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # announced, keyed by contact kind.
         self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
+        self.anomaly_evidence = AnomalyEvidenceTracker()
+        self._anomaly_followup_due: float | None = None
+        self._anomaly_followup_task: asyncio.Task[None] | None = None
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
@@ -1479,6 +1493,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.weather_source = DampedSource()
         self.damped_weather_temperature: float | None = None
         self.forecast_temperature: float | None = None
+        # Hourly cloud/condition forecast, cached hourly by weather.py for
+        # the predictive disturbance horizon. ``None`` while unavailable.
+        self.hourly_forecast: tuple[HourlyForecastPoint, ...] | None = None
         self._available = False
         self.context: Context | None = None
         self.attr_hvac_action: HVACAction | None = None
@@ -1710,6 +1727,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             restored_window_detection(self.hass, self.unique_id) is False
         ):
             self.kernel_state = replace(self.kernel_state, window_detection=False)
+        restored_anomaly = restored_anomaly_detection(self.hass, self.unique_id)
+        if restored_anomaly is not None:
+            self.kernel_state = replace(
+                self.kernel_state, anomaly_detection=restored_anomaly
+            )
+        restored_suppression = restored_anomaly_suppression(self.hass, self.unique_id)
+        if restored_suppression is not None:
+            self.kernel_state = replace(
+                self.kernel_state, anomaly_suppression=restored_suppression
+            )
 
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
@@ -4064,7 +4091,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             return
         if not isinstance(region, MaintenanceDue):
             # Direct invocation (service call / tests): arm before starting.
-            region = MaintenanceDue(next_due=region.next_due)
+            region = MaintenanceDue(
+                next_due=region.next_due,
+                last_anomaly_run_monotonic=region.last_anomaly_run_monotonic,
+                anomaly_run_pending=(
+                    isinstance(region, MaintenanceIdle) and region.anomaly_run_pending
+                ),
+            )
         self.kernel_state = replace(
             self.kernel_state,
             maintenance=maintenance_start_run(region, self.clock.monotonic()),
@@ -4107,12 +4140,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # devices or one TRV are released goes on without writing to
             # them: from then on they are the user's, the restore at the end
             # included.
+            # Every write takes the control lock. A control cycle that was
+            # writing to a TRV when maintenance started holds it for all of
+            # that TRV's writes and reads back the setpoint it sent, so an
+            # exercise command goes out only after them. A TRV still waiting
+            # for the lock then stands down, see control_trv().
             async def _set_valve(entity_id: str, percent: int) -> bool:
-                if device_released(self, entity_id):
-                    return False
                 try:
-                    ok = await adapter_set_valve(self, entity_id, percent)
-                    return ok
+                    async with self._temperature_lock:
+                        if device_released(self, entity_id):
+                            return False
+                        return await adapter_set_valve(self, entity_id, percent)
                 except Exception:
                     _LOGGER.debug(
                         "better_thermostat %s: maintenance valve set failed for %s",
@@ -4123,19 +4161,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     return False
 
             async def _set_temperature(entity_id: str, temperature: float) -> None:
-                # A control cycle already running when maintenance starts
-                # still writes setpoints, and it reads the value the delegate
-                # sent back from the TRV once its call returns. Taking the
-                # control lock keeps a maintenance setpoint out of that window.
                 async with self._temperature_lock:
                     if device_released(self, entity_id):
                         return
                     await adapter_set_temperature(self, entity_id, temperature)
 
             async def _set_mode(entity_id: str, mode: str) -> None:
-                if device_released(self, entity_id):
-                    return
-                await adapter_set_hvac_mode(self, entity_id, mode)
+                async with self._temperature_lock:
+                    if device_released(self, entity_id):
+                        return
+                    await adapter_set_hvac_mode(self, entity_id, mode)
 
             # Run 2× open/close + restore
             await run_valve_maintenance(
@@ -4390,6 +4425,68 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
         self.async_write_ha_state()
 
+    @callback
+    def set_anomaly_detection(self, enabled: bool) -> None:
+        """Enable or disable sensorless anomaly detection, and publish the new state.
+
+        Parameters
+        ----------
+        enabled : bool
+            Whether sensorless anomaly detection is enabled.
+        """
+        if self.kernel_state.anomaly_detection == enabled:
+            return
+        pre_state = self.kernel_state
+        if enabled:
+            post_state = replace(pre_state, anomaly_detection=True)
+        else:
+            post_state = replace(
+                pre_state, anomaly_detection=False, anomaly=AnomalyState()
+            )
+            self.anomaly_evidence.reset()
+        self.kernel_state = post_state
+        if not enabled and self._anomaly_followup_task is not None:
+            if not self._anomaly_followup_task.done():
+                self._anomaly_followup_task.cancel()
+            self._anomaly_followup_task = None
+            self._anomaly_followup_due = None
+        if not enabled:
+            sync_anomaly_repairs_and_actions(self, None, pre_state, post_state)
+        if not self.startup_running:
+            request_control_cycle(self)
+        _LOGGER.info(
+            "better_thermostat %s: anomaly detection %s",
+            self.device_name,
+            "enabled" if enabled else "disabled",
+        )
+        if self.hass is not None:
+            self.async_write_ha_state()
+            # Whether detection is on is no attribute of the thermostat, so
+            # the entities that show the detection are told of the switch.
+            announce_learned_state(self.hass, self._unique_id)
+
+    @callback
+    def set_anomaly_suppression(self, enabled: bool) -> None:
+        """Enable or disable suspected-window heating suppression.
+
+        Parameters
+        ----------
+        enabled : bool
+            Whether suspected-window suppression is enabled.
+        """
+        if self.kernel_state.anomaly_suppression == enabled:
+            return
+        self.kernel_state = replace(self.kernel_state, anomaly_suppression=enabled)
+        if not self.startup_running:
+            request_control_cycle(self)
+        _LOGGER.info(
+            "better_thermostat %s: suspected-window suppression %s",
+            self.device_name,
+            "enabled" if enabled else "disabled",
+        )
+        if self.hass is not None:
+            self.async_write_ha_state()
+
     @property
     def contact_open(self) -> bool:
         """Return True when an open window or door suppresses heating.
@@ -4442,6 +4539,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         dict
                 Attribute dictionary for the extra device specific state attributes.
         """
+        room_anomalies, trv_anomalies = (
+            anomaly_visible_codes(self.kernel_state.anomaly)
+            if self.kernel_state.anomaly_detection
+            else ((), {})
+        )
         dev_specific: dict[str, object] = {
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_DOOR_OPEN: self.door_open,
@@ -4459,6 +4561,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 if self.heating_blocked_by is None
                 else str(self.heating_blocked_by)
             ),
+            ATTR_STATE_ANOMALIES: [code.value for code in room_anomalies],
             ATTR_STATE_ACTIVE_OVERRIDES: [
                 str(override)
                 for override, active in (
@@ -4514,6 +4617,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
                 self.kernel_state.window_detection
             )
+        if trv_anomalies:
+            dev_specific[ATTR_STATE_TRV_ANOMALIES] = {
+                entity_id: [code.value for code in codes]
+                for entity_id, codes in trv_anomalies.items()
+            }
 
         # Optional: summarize last valve method per TRV (adapter vs override)
         methods = {

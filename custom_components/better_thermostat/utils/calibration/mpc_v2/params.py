@@ -33,6 +33,28 @@ class MpcV2Params:
     plant_step_s: float = 30.0
 
 
+# Horizon of a room that plans with its learned disturbance profile. 24 fine
+# steps reach two hours ahead at the default ~300 s grid, long enough for the
+# morning solar gain to enter the plan before the room needs it. Two-step
+# move blocks keep the 12 decisions the one-hour horizon has, one per ten
+# minutes at that grid.
+PREDICTIVE_HORIZON_STEPS: Final = 24
+PREDICTIVE_MOVE_BLOCK_STEPS: Final = 2
+
+
+def predictive_qp_params() -> QpParams:
+    """Return the QP tunables of a room that plans with predicted gains.
+
+    Only such a room takes the longer horizon: it weighs comfort over twice
+    as many steps, so a room that never asked for the prediction keeps the
+    plan it had.
+    """
+    return QpParams(
+        horizon_steps=PREDICTIVE_HORIZON_STEPS,
+        move_block_steps=PREDICTIVE_MOVE_BLOCK_STEPS,
+    )
+
+
 # Static plant priors as an alternative to the AUTO path (which derives
 # ``tau_room_min`` from BT's online learnings). The presets differ only in
 # ``tau_room_min`` — the envelope speed that tracks room size. Gain, radiator
