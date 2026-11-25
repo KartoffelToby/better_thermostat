@@ -470,6 +470,18 @@
       },
       "heat_loss_detected": {
         "name": "检测到异常热损失"
+      },
+      "suspected_open_window": {
+        "name": "疑似窗户打开"
+      },
+      "sustained_heat_loss": {
+        "name": "持续热损失"
+      },
+      "no_heat_delivery": {
+        "name": "无供暖输出"
+      },
+      "valve_stuck_open": {
+        "name": "阀门卡在打开位置"
       }
     },
     "number": {
@@ -673,6 +685,16 @@
       },
       "pid_error": {
         "name": "PID 误差"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "持续热损失检测",
+        "state": {
+          "monitoring": "监测中",
+          "paused": "已暂停",
+          "loss_above_target": "发现热损失，室温高于目标",
+          "checking": "检查中",
+          "detected": "已检测到"
+        }
       }
     }
   },

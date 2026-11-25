@@ -41,6 +41,20 @@ class FaultPhase(StrEnum):
     EXPIRED = "expired"
 
 
+class ParasiticLossWatch(StrEnum):
+    """What the parasitic-loss detector makes of the room on one snapshot.
+
+    Published as the state of an entity, so the values are a user-facing
+    contract.
+    """
+
+    MONITORING = "monitoring"
+    PAUSED = "paused"
+    LOSS_ABOVE_TARGET = "loss_above_target"
+    CHECKING = "checking"
+    DETECTED = "detected"
+
+
 @dataclass(frozen=True)
 class FaultSlot:
     """Timer state of one fault detector.
@@ -126,6 +140,7 @@ class AnomalyParams:
     parasitic_recovery_seconds: float = 900.0
     parasitic_liveness_seconds: float = 86_400.0
     parasitic_after_rapid_cooldown_seconds: float = 900.0
+    parasitic_onset_max_room_excess_kelvin: float = 0.1
     no_heat_min_deficit_kelvin: float = 0.5
     no_heat_min_valve_percent: float = 50.0
     no_heat_min_setpoint_lead_kelvin: float = 2.0
@@ -255,6 +270,11 @@ def step_slot(
     return slot
 
 
+def _released_or_starting(heating_blocked_by: HeatingBlock | None) -> bool:
+    """Return whether the room's devices are out of Better Thermostat's hands."""
+    return heating_blocked_by in (HeatingBlock.DEVICES_RELEASED, HeatingBlock.STARTUP)
+
+
 def _fresh_observer(
     snapshot: WorldSnapshot, params: AnomalyParams
 ) -> ObserverReading | None:
@@ -360,23 +380,45 @@ def _rapid_loss_evidence(
     )
 
 
-def _parasitic_loss_evidence(
-    slot: FaultSlot,
+def _parasitic_loss_readable(
     snapshot: WorldSnapshot,
     control_mode: ControlMode,
-    observer: ObserverReading | None,
     last_rapid_loss_monotonic: float | None,
     params: AnomalyParams,
 ) -> bool:
-    """Evaluate whether the sustained parasitic-loss signature holds."""
-    if control_mode != ControlMode.OPTIMAL or observer is None:
+    """Return whether the observer's disturbance stands for the room's own loss."""
+    if control_mode != ControlMode.OPTIMAL:
         return False
-    if (
-        last_rapid_loss_monotonic is not None
-        and snapshot.now_monotonic - last_rapid_loss_monotonic
-        < params.parasitic_after_rapid_cooldown_seconds
-    ):
-        return False
+    return (
+        last_rapid_loss_monotonic is None
+        or snapshot.now_monotonic - last_rapid_loss_monotonic
+        >= params.parasitic_after_rapid_cooldown_seconds
+    )
+
+
+def _above_parasitic_onset_limit(
+    snapshot: WorldSnapshot, params: AnomalyParams
+) -> bool:
+    """Return whether the room stands too far above its target to be short of heat.
+
+    The excess is read on the hundredth of a kelvin the target is kept on, so
+    a room exactly at the limit is on the same side of it at every target.
+    """
+    room_temperature = _room_reference_temperature(snapshot)
+    return (
+        room_temperature is not None
+        and round(room_temperature - snapshot.heat_target_temperature, 2)
+        > params.parasitic_onset_max_room_excess_kelvin
+    )
+
+
+def _parasitic_loss_signature(
+    slot: FaultSlot,
+    snapshot: WorldSnapshot,
+    observer: ObserverReading,
+    params: AnomalyParams,
+) -> bool:
+    """Return whether the observer reads a sustained loss in a readable room."""
     disturbance_shift = (
         observer.disturbance_kelvin_per_min
         - observer.disturbance_baseline_kelvin_per_min
@@ -401,6 +443,89 @@ def _parasitic_loss_evidence(
     elif snapshot.temperature_slope is not None and snapshot.temperature_slope > 0.005:
         return False
     return True
+
+
+def _parasitic_loss_evidence(
+    slot: FaultSlot,
+    snapshot: WorldSnapshot,
+    control_mode: ControlMode,
+    observer: ObserverReading | None,
+    last_rapid_loss_monotonic: float | None,
+    params: AnomalyParams,
+) -> bool:
+    """Evaluate whether the sustained parasitic-loss signature holds."""
+    if observer is None or not _parasitic_loss_readable(
+        snapshot, control_mode, last_rapid_loss_monotonic, params
+    ):
+        return False
+    # A loss is suspected only in a room short of heat. Above its target the
+    # room is not: what the observer reads as a loss there is the room cooling
+    # toward its target, or a wall taking up heat, a store the model of room
+    # air and radiator does not carry. The margin keeps a room held at its
+    # target, whose reading stands a little above it now and then, from
+    # restarting the dwell. A loss already found stays until the observer's
+    # evidence ends it, so an open door the heating makes up for keeps
+    # holding learning.
+    if not slot.is_visible and _above_parasitic_onset_limit(snapshot, params):
+        return False
+    return _parasitic_loss_signature(slot, snapshot, observer, params)
+
+
+def parasitic_loss_watch(
+    state: AnomalyState,
+    snapshot: WorldSnapshot,
+    *,
+    control_mode: ControlMode,
+    heating_blocked_by: HeatingBlock | None,
+    contact_open: bool,
+    params: AnomalyParams = DEFAULT_ANOMALY_PARAMS,
+) -> ParasiticLossWatch:
+    """Return what the parasitic-loss detector makes of the room.
+
+    A detector that reports nothing is either reading a room without a loss,
+    not reading the room at all, or reading a loss it does not count. The
+    three look alike from the anomaly alone, so they are told apart here.
+
+    Parameters
+    ----------
+    state : AnomalyState
+        Anomaly region state after ``step`` ran on ``snapshot``.
+    snapshot : WorldSnapshot
+        The snapshot ``step`` ran on.
+    control_mode : ControlMode
+        Active rung of the degradation ladder.
+    heating_blocked_by : HeatingBlock | None
+        Block the cycle decided on, or ``None`` when the room is heated.
+    contact_open : bool
+        Whether a window or door contact region is effectively open.
+    params : AnomalyParams, optional
+        Detection thresholds and the freshness window of the observer.
+
+    Returns
+    -------
+    ParasiticLossWatch
+        The detector's reading of the room.
+    """
+    slot = state.parasitic_loss
+    if slot.is_visible:
+        return ParasiticLossWatch.DETECTED
+    if slot.phase == FaultPhase.SUSPECT:
+        return ParasiticLossWatch.CHECKING
+    observer = _fresh_observer(snapshot, params)
+    if (
+        contact_open
+        or _released_or_starting(heating_blocked_by)
+        or observer is None
+        or not _parasitic_loss_readable(
+            snapshot, control_mode, state.last_rapid_loss_monotonic, params
+        )
+    ):
+        return ParasiticLossWatch.PAUSED
+    if _above_parasitic_onset_limit(snapshot, params) and _parasitic_loss_signature(
+        slot, snapshot, observer, params
+    ):
+        return ParasiticLossWatch.LOSS_ABOVE_TARGET
+    return ParasiticLossWatch.MONITORING
 
 
 def _trv_has_high_demand(trv: TrvReported, params: AnomalyParams) -> bool:
@@ -572,10 +697,7 @@ def step(
         Successor anomaly state.
     """
     now = snapshot.now_monotonic
-    released_or_starting = heating_blocked_by in (
-        HeatingBlock.DEVICES_RELEASED,
-        HeatingBlock.STARTUP,
-    )
+    released_or_starting = _released_or_starting(heating_blocked_by)
     observer = _fresh_observer(snapshot, params)
 
     rapid_evidence = _rapid_loss_evidence(snapshot, control_mode, observer, params)

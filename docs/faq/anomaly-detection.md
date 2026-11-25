@@ -12,13 +12,33 @@ environmental anomalies without additional hardware sensors.
 
 - **Anomaly Detection** — enables sensorless fault and anomaly detection for
   the thermostat. When active, confirmed faults appear in the
-  `anomalies` attribute on the climate entity, pause thermal model
-  learning so fault data does not corrupt learned parameters, and raise Home
-  Assistant repair issues for hardware faults.
+  `anomalies` attribute on the climate entity and on the binary sensors
+  described below, pause thermal model learning so fault data does not
+  corrupt learned parameters, and raise Home Assistant repair issues for
+  hardware faults.
 - **Suspected Window Suppression** — when both **Anomaly Detection** and
   **Suspected Window Suppression** are enabled, a confirmed rapid heat loss
   (`unexpected_rapid_loss`) temporarily pauses heating as `suspected_window` for up
   to 60 minutes or until room temperature stops falling.
+
+## Sensors
+
+Each anomaly has a binary sensor on the device: **Suspected open window**,
+**Sustained heat loss**, **No heat delivery** and **Valve stuck open**. A
+sensor is on while its anomaly is reported, so an automation can act on it.
+While **Anomaly Detection** is off the sensors are unavailable.
+
+The **Sustained heat loss detection** sensor says what the detector makes of
+the room while it reports nothing: whether it is monitoring, paused, or
+reading a loss it does not count because the room is above its target.
+
+**Sustained heat loss** and **Sustained heat loss detection** exist only
+while at least one TRV of the device uses the MPC v2 calibration mode: only
+its observer can tell such a loss, so in another room they would never
+report.
+[Entities](/setup/entities/#anomalies) describes the binary sensors and their
+attributes, and [Sustained heat loss detection](/setup/entities/#sustained-heat-loss-detection)
+every state of the sensor.
 
 ## Repair issues
 

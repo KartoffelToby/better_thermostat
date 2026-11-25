@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Perte de chaleur inattendue détectée"
+      },
+      "suspected_open_window": {
+        "name": "Fenêtre suspectée ouverte"
+      },
+      "sustained_heat_loss": {
+        "name": "Perte de chaleur persistante"
+      },
+      "no_heat_delivery": {
+        "name": "Aucun apport de chaleur"
+      },
+      "valve_stuck_open": {
+        "name": "Vanne bloquée ouverte"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "Écart PID"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Détection de perte de chaleur persistante",
+        "state": {
+          "monitoring": "Surveillance",
+          "paused": "En pause",
+          "loss_above_target": "Perte constatée, pièce au-dessus de la consigne",
+          "checking": "Vérification",
+          "detected": "Détectée"
+        }
       }
     }
   },

@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Обнаружена неожиданная потеря тепла"
+      },
+      "suspected_open_window": {
+        "name": "Предполагаемое открытое окно"
+      },
+      "sustained_heat_loss": {
+        "name": "Устойчивая потеря тепла"
+      },
+      "no_heat_delivery": {
+        "name": "Нет подачи тепла"
+      },
+      "valve_stuck_open": {
+        "name": "Клапан заклинило в открытом положении"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "Ошибка ПИД"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Обнаружение устойчивой потери тепла",
+        "state": {
+          "monitoring": "Наблюдение",
+          "paused": "Приостановлено",
+          "loss_above_target": "Потеря замечена, температура выше целевой",
+          "checking": "Проверка",
+          "detected": "Обнаружено"
+        }
       }
     }
   },

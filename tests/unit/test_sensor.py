@@ -14,10 +14,12 @@ import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
+from custom_components.better_thermostat.core.fsm.anomaly import ParasiticLossWatch
+from custom_components.better_thermostat.entity import FollowsThermostat
 from custom_components.better_thermostat.sensor import (
     BetterThermostatExternalTemp1hEMASensor,
     BetterThermostatExternalTempSensor,
@@ -33,6 +35,7 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
     BetterThermostatPidOutputSensor,
+    BetterThermostatSustainedHeatLossDetectionSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
     _BtMpcSensorBase,
@@ -957,7 +960,7 @@ class TestSetupAlgorithmSensors:
             sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
 
         unique_ids = [s.unique_id for s in sensors]
-        assert len(unique_ids) == 9
+        assert len(unique_ids) == 10
         assert len(set(unique_ids)) == len(unique_ids), unique_ids
 
     @pytest.mark.parametrize(
@@ -1951,3 +1954,85 @@ class TestDynamicUpdateBelongsToTheEntry:
         entry.async_create_background_task.assert_called_once()
         assert entry.async_create_background_task.call_args.args[0] is hass
         hass.async_create_background_task.assert_not_called()
+
+
+def _watching(watch: ParasiticLossWatch | None):
+    """Return a climate stand-in whose tracker holds ``watch``."""
+    bt = _make_bt_climate()
+    bt.anomaly_evidence._parasitic_loss_watch = watch
+    return bt
+
+
+class TestSustainedHeatLossDetectionSensor:
+    """The sensor says what the sustained heat loss detector makes of the room."""
+
+    @pytest.mark.parametrize("watch", list(ParasiticLossWatch))
+    def test_the_sensor_shows_the_watch_of_the_last_cycle(self, watch):
+        """Every reading of the detector is a state the sensor can show."""
+        sensor = BetterThermostatSustainedHeatLossDetectionSensor(_watching(watch))
+
+        assert sensor.native_value == watch.value
+        assert sensor.available is True
+
+    def test_a_room_nobody_watches_is_not_shown_as_monitored(self):
+        """While anomaly detection is off the sensor is unavailable."""
+        sensor = BetterThermostatSustainedHeatLossDetectionSensor(_watching(None))
+
+        assert sensor.available is False
+        assert sensor.native_value is None
+
+    def test_an_unavailable_thermostat_leaves_the_sensor_unavailable(self):
+        """Nothing the thermostat reports is worth showing then."""
+        bt = _watching(ParasiticLossWatch.MONITORING)
+        bt._available = False
+
+        assert BetterThermostatSustainedHeatLossDetectionSensor(bt).available is False
+
+    def test_the_states_are_an_enumeration_and_no_measurement(self):
+        """Home Assistant translates the states and keeps no statistics of them."""
+        sensor = BetterThermostatSustainedHeatLossDetectionSensor(_watching(None))
+
+        assert sensor.device_class is SensorDeviceClass.ENUM
+        assert sensor.state_class is None
+
+    def test_the_sensor_is_enabled_for_a_new_entry(self):
+        """The sensor explains a detector that stays silent, so it is shown."""
+        sensor = BetterThermostatSustainedHeatLossDetectionSensor(_watching(None))
+
+        assert sensor.entity_registry_enabled_default is True
+
+    @pytest.mark.asyncio
+    async def test_the_sensor_follows_the_thermostat(self):
+        """The sensor is published again whenever the thermostat reports or announces."""
+        sensor = BetterThermostatSustainedHeatLossDetectionSensor(
+            _watching(ParasiticLossWatch.MONITORING)
+        )
+
+        with patch.object(FollowsThermostat, "_follow_thermostat") as follow:
+            await sensor.async_added_to_hass()
+
+        follow.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_room_on_mpc_v2_gets_the_sensor(self):
+        """Only the MPC v2 observer feeds the detector, so its rooms get the sensor."""
+        entry = _make_entry()
+        tracked = entry.runtime_data.tracked_entities
+        bt = _make_bt_climate(
+            real_trvs=_trvs_in_modes(CalibrationMode.MPC_V2_CALIBRATION)
+        )
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            sensors = await _setup_algorithm_sensors(MagicMock(), entry, bt)
+
+        (detection,) = [
+            sensor
+            for sensor in sensors
+            if isinstance(sensor, BetterThermostatSustainedHeatLossDetectionSensor)
+        ]
+        assert (
+            detection.unique_id
+            in tracked.algorithm_sensors[CalibrationMode.MPC_V2_CALIBRATION]
+        )

@@ -21,6 +21,10 @@ from custom_components.better_thermostat import (
 from custom_components.better_thermostat.binary_sensor import (
     BetterThermostatHeatLossBinarySensor,
     BetterThermostatHeatSourceBinarySensor,
+    BetterThermostatNoHeatDeliveryBinarySensor,
+    BetterThermostatSuspectedOpenWindowBinarySensor,
+    BetterThermostatSustainedHeatLossBinarySensor,
+    BetterThermostatValveStuckOpenBinarySensor,
 )
 from custom_components.better_thermostat.number import (
     BetterThermostatPIDNumber,
@@ -42,6 +46,7 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
     BetterThermostatPidOutputSensor,
+    BetterThermostatSustainedHeatLossDetectionSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
     _cleanup_pid_number_entities,
@@ -118,8 +123,16 @@ def _bt_climate() -> ThermostatStandIn:
         (BetterThermostatMpcV2RoomTimeConstantSensor, "bt_1_mpc_v2_room_time_constant"),
         (BetterThermostatPidOutputSensor, "bt_1_pid_output"),
         (BetterThermostatPidErrorSensor, "bt_1_pid_error"),
+        (
+            BetterThermostatSustainedHeatLossDetectionSensor,
+            "bt_1_sustained_heat_loss_detection",
+        ),
         (BetterThermostatHeatSourceBinarySensor, "bt_1_heat_source_detected"),
         (BetterThermostatHeatLossBinarySensor, "bt_1_heat_loss_detected"),
+        (BetterThermostatSuspectedOpenWindowBinarySensor, "bt_1_suspected_open_window"),
+        (BetterThermostatSustainedHeatLossBinarySensor, "bt_1_sustained_heat_loss"),
+        (BetterThermostatNoHeatDeliveryBinarySensor, "bt_1_no_heat_delivery"),
+        (BetterThermostatValveStuckOpenBinarySensor, "bt_1_valve_stuck_open"),
     ],
 )
 def test_entity_unique_id_is_spelled_as_registered(entity, expected):

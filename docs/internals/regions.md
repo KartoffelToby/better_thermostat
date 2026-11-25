@@ -175,6 +175,21 @@ diagnostics. An open contact sensor resets `unexpected_rapid_loss` and
 `sustained_parasitic_loss` immediately because the cause is already
 known.
 
+A new `sustained_parasitic_loss` is suspected only in a room no more
+than 0.1 K above its target. Further above it the room is not short of
+heat: what the observer sees as a loss is the room cooling toward its
+target, or a wall taking up heat, a store the model of room air and
+radiator does not carry. The 0.1 K keep a room held at its target,
+whose reading stands a little above it now and then, from restarting
+the dwell. A loss already found stays until the observer's evidence
+ends it, so an open door the heating makes up for keeps holding
+learning.
+
+A detector that reports nothing is reading a room without a loss, not
+reading the room, or reading a loss it does not count. `parasitic_loss_watch`
+tells the three apart from the state `step` returned, and the shell
+publishes its value as the **Sustained heat loss detection** sensor.
+
 The shell reads the room's slope under every block that only shuts the
 valves (`hvac_off`, `no_call_for_heat`, `suspected_window`), so a
 suspected window keeps the evidence it stands on while it suppresses

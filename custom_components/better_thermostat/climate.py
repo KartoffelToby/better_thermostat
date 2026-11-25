@@ -4461,6 +4461,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
         if self.hass is not None:
             self.async_write_ha_state()
+            # Whether detection is on is no attribute of the thermostat, so
+            # the entities that show the detection are told of the switch.
+            announce_learned_state(self.hass, self._unique_id)
 
     @callback
     def set_anomaly_suppression(self, enabled: bool) -> None:

@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Wykryto nieoczekiwaną utratę ciepła"
+      },
+      "suspected_open_window": {
+        "name": "Podejrzenie otwartego okna"
+      },
+      "sustained_heat_loss": {
+        "name": "Utrzymująca się utrata ciepła"
+      },
+      "no_heat_delivery": {
+        "name": "Brak dostarczania ciepła"
+      },
+      "valve_stuck_open": {
+        "name": "Zawór zablokowany w pozycji otwartej"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "Uchyb PID"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Wykrywanie utrzymującej się utraty ciepła",
+        "state": {
+          "monitoring": "Monitorowanie",
+          "paused": "Wstrzymano",
+          "loss_above_target": "Utrata widoczna, pomieszczenie powyżej temperatury docelowej",
+          "checking": "Sprawdzanie",
+          "detected": "Wykryto"
+        }
       }
     }
   },

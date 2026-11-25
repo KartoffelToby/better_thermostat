@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Beklenmeyen ısı kaybı algılandı"
+      },
+      "suspected_open_window": {
+        "name": "Açık olduğundan şüphelenilen pencere"
+      },
+      "sustained_heat_loss": {
+        "name": "Sürekli ısı kaybı"
+      },
+      "no_heat_delivery": {
+        "name": "Isı iletimi yok"
+      },
+      "valve_stuck_open": {
+        "name": "Vana açık konumda sıkışmış"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "PID hatası"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Sürekli ısı kaybı algılama",
+        "state": {
+          "monitoring": "İzleniyor",
+          "paused": "Duraklatıldı",
+          "loss_above_target": "Kayıp görüldü, oda hedefin üzerinde",
+          "checking": "Kontrol ediliyor",
+          "detected": "Algılandı"
+        }
       }
     }
   },

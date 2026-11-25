@@ -17,13 +17,16 @@ from custom_components.better_thermostat.core.fsm.anomaly import (
     AnomalyState,
     FaultPhase,
     FaultSlot,
+    ParasiticLossWatch,
     TrvFaultState,
 )
 from custom_components.better_thermostat.core.snapshot import (
+    ObserverReading,
     ThermalEvidence,
     TrvReported,
 )
 from custom_components.better_thermostat.model_fixes import COZB0001
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.anomaly_evidence import (
     DEFAULT_ARM_SAMPLES,
     DEFAULT_MIN_SIGMA_KELVIN_PER_MIN,
@@ -40,6 +43,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.controlling import (
     _schedule_anomaly_followup,
+    compute_control_cycle,
 )
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from tests.factories import (
@@ -49,6 +53,8 @@ from tests.factories import (
     make_state_attributes_bt,
     trv_record,
 )
+
+_CONTROLLING = "custom_components.better_thermostat.utils.controlling"
 
 
 class TestPureSlopeHelpers:
@@ -624,6 +630,120 @@ class TestRoomSlopeUnderAHeatingBlock:
         evidence = _observe_falling_room(tracker, 13)
         assert evidence.slope_measured
         assert evidence.slope_residual_kelvin_per_min == pytest.approx(-0.1)
+
+
+def _loss_above_target(now_monotonic: float = 1000.0):
+    """Return a snapshot of a room above its target the observer reads a loss in."""
+    return make_snapshot(
+        now_monotonic=now_monotonic,
+        room_temperature=21.4,
+        temperature_slope=-0.01,
+        thermal_evidence=ThermalEvidence(
+            observer=ObserverReading(
+                age_seconds=30.0,
+                normalised_innovation=0.0,
+                disturbance_kelvin_per_min=-0.01,
+                disturbance_at_bound=False,
+                room_time_constant_minutes=90.0,
+                disturbance_baseline_kelvin_per_min=0.0,
+            )
+        ),
+    )
+
+
+class TestParasiticLossWatchOfTheCycle:
+    """The tracker holds what the detector made of the last committed cycle."""
+
+    def test_the_watch_is_the_one_of_the_committed_cycle(self):
+        """The watch shown is the one of the room's last control cycle."""
+        tracker = AnomalyEvidenceTracker()
+        tracker.commit_cycle(
+            _loss_above_target(), AnomalyState(), anomaly_detection=True
+        )
+        assert tracker.parasitic_loss_watch is ParasiticLossWatch.LOSS_ABOVE_TARGET
+
+    def test_nothing_is_watched_while_detection_is_off(self):
+        """A room nobody watches has no watch to show."""
+        tracker = AnomalyEvidenceTracker()
+        assert tracker.parasitic_loss_watch is None
+        tracker.commit_cycle(_loss_above_target(), AnomalyState())
+        assert tracker.parasitic_loss_watch is None
+
+    def test_a_reset_drops_the_watch(self):
+        """Switching detection off leaves no watch of an earlier cycle behind."""
+        tracker = AnomalyEvidenceTracker()
+        tracker.commit_cycle(
+            _loss_above_target(), AnomalyState(), anomaly_detection=True
+        )
+        tracker.reset()
+        assert tracker.parasitic_loss_watch is None
+
+
+class TestAnomalyEntitiesFollowTheCycle:
+    """What the anomaly entities show lives in no attribute of the thermostat."""
+
+    @staticmethod
+    def _room(anomaly: AnomalyState | None = None) -> ThermostatStandIn:
+        bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
+        bt.hass = MagicMock()
+        bt.real_trvs = dict[str, Trv]()
+        bt.kernel_state = make_state(
+            anomaly_detection=True, anomaly=anomaly or AnomalyState()
+        )
+        return bt
+
+    def test_a_change_of_the_watch_is_announced_once(self):
+        """The entities are told when the watch changes, and not on every cycle."""
+        bt = self._room()
+        with (
+            patch(f"{_CONTROLLING}.build_snapshot", lambda _bt: _loss_above_target()),
+            patch(f"{_CONTROLLING}.announce_learned_state") as announce,
+        ):
+            compute_control_cycle(bt)
+            assert announce.call_count == 1
+            compute_control_cycle(bt)
+        assert announce.call_count == 1
+
+    def test_a_change_of_a_slot_phase_is_announced(self):
+        """A finding that starts to recover reaches the entity that shows its phase."""
+        bt = self._room(
+            AnomalyState(
+                rapid_loss=FaultSlot(phase=FaultPhase.ACTIVE, active_since=0.0)
+            )
+        )
+        quiet = make_snapshot(
+            now_monotonic=1000.0,
+            thermal_evidence=ThermalEvidence(
+                observer=ObserverReading(
+                    age_seconds=30.0,
+                    normalised_innovation=0.0,
+                    disturbance_kelvin_per_min=0.0,
+                    disturbance_at_bound=False,
+                    room_time_constant_minutes=90.0,
+                    disturbance_baseline_kelvin_per_min=0.0,
+                )
+            ),
+        )
+        with (
+            patch(f"{_CONTROLLING}.build_snapshot", lambda _bt: quiet),
+            patch(f"{_CONTROLLING}.announce_learned_state") as announce,
+        ):
+            compute_control_cycle(bt)
+            assert bt.kernel_state.anomaly.rapid_loss.phase is FaultPhase.RECOVERING
+            announce.assert_called_once()
+            compute_control_cycle(bt)
+        announce.assert_called_once()
+
+    def test_a_probe_announces_nothing(self):
+        """The reconciler's probe is no cycle and tells the entities nothing."""
+        bt = self._room()
+        with (
+            patch(f"{_CONTROLLING}.build_snapshot", lambda _bt: _loss_above_target()),
+            patch(f"{_CONTROLLING}.announce_learned_state") as announce,
+        ):
+            compute_control_cycle(bt, record=False, commit=False)
+        announce.assert_not_called()
 
 
 class TestFollowUpSchedulingAndAttributes:

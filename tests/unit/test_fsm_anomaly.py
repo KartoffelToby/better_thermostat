@@ -550,6 +550,196 @@ class TestSustainedParasiticLoss:
             == an.FaultSlot()
         )
 
+    def test_room_above_its_target_is_not_suspected_of_parasitic_loss(self):
+        """A room above its target is not short of heat, so no loss is suspected.
+
+        A room held at its target reads a little above it now and then, and
+        is suspected all the same.
+        """
+        target = 21.0
+        held_at_target = (
+            target + an.DEFAULT_ANOMALY_PARAMS.parasitic_onset_max_room_excess_kelvin
+        )
+
+        def phase_at(room_temperature: float) -> an.FaultPhase:
+            return an.step(
+                an.AnomalyState(),
+                make_snapshot(
+                    now_monotonic=3000.0,
+                    heat_target_temperature=target,
+                    room_temperature=room_temperature,
+                    temperature_slope=-0.01,
+                    thermal_evidence=ThermalEvidence(
+                        slope_residual_kelvin_per_min=-0.01,
+                        observer=_observer(disturbance_kelvin_per_min=-0.01),
+                    ),
+                ),
+                control_mode=ControlMode.OPTIMAL,
+                heating_blocked_by=None,
+                contact_open=False,
+                addressed_trvs=("climate.trv1",),
+            ).parasitic_loss.phase
+
+        assert phase_at(held_at_target) == an.FaultPhase.SUSPECT
+        assert phase_at(held_at_target + 0.01) == an.FaultPhase.CLEAR
+
+    def test_parasitic_loss_stays_while_the_heating_makes_up_for_it(self):
+        """A loss already found stays reported in a room the heating keeps warm."""
+        active = an.AnomalyState(
+            parasitic_loss=an.FaultSlot(phase=an.FaultPhase.ACTIVE, active_since=1000.0)
+        )
+        snap = make_snapshot(
+            now_monotonic=2000.0,
+            room_temperature=21.4,
+            temperature_slope=-0.01,
+            thermal_evidence=ThermalEvidence(
+                slope_residual_kelvin_per_min=-0.01,
+                observer=_observer(disturbance_kelvin_per_min=-0.01),
+            ),
+        )
+        state = an.step(
+            active,
+            snap,
+            control_mode=ControlMode.OPTIMAL,
+            heating_blocked_by=None,
+            contact_open=False,
+            addressed_trvs=("climate.trv1",),
+        )
+        assert state.parasitic_loss.phase == an.FaultPhase.ACTIVE
+        assert AnomalyCode.SUSTAINED_PARASITIC_LOSS in an.gating_codes(state, 2000.0)
+
+    def test_parasitic_loss_guard_reads_the_filtered_room_temperature(self):
+        """The room is held against its target on the reading the room is judged by."""
+        snap = make_snapshot(
+            now_monotonic=3000.0,
+            room_temperature=20.9,
+            room_temperature_filtered=21.4,
+            temperature_slope=-0.01,
+            thermal_evidence=ThermalEvidence(
+                observer=_observer(disturbance_kelvin_per_min=-0.01)
+            ),
+        )
+        state = an.step(
+            an.AnomalyState(),
+            snap,
+            control_mode=ControlMode.OPTIMAL,
+            heating_blocked_by=None,
+            contact_open=False,
+            addressed_trvs=("climate.trv1",),
+        )
+        assert state.parasitic_loss == an.FaultSlot()
+
+
+def _loss_reading(**snapshot_overrides):
+    """Return a snapshot in which the observer reads a sustained loss."""
+    defaults = {
+        "now_monotonic": 3000.0,
+        "temperature_slope": -0.01,
+        "thermal_evidence": ThermalEvidence(
+            slope_residual_kelvin_per_min=-0.01,
+            observer=_observer(disturbance_kelvin_per_min=-0.01),
+        ),
+    }
+    defaults.update(snapshot_overrides)
+    return make_snapshot(**defaults)
+
+
+def _watch(
+    snapshot,
+    state: an.AnomalyState | None = None,
+    *,
+    control_mode: ControlMode = ControlMode.OPTIMAL,
+    heating_blocked_by: HeatingBlock | None = None,
+    contact_open: bool = False,
+) -> an.ParasiticLossWatch:
+    return an.parasitic_loss_watch(
+        state if state is not None else an.AnomalyState(),
+        snapshot,
+        control_mode=control_mode,
+        heating_blocked_by=heating_blocked_by,
+        contact_open=contact_open,
+    )
+
+
+class TestParasiticLossWatch:
+    """What the user is told the parasitic-loss detector makes of the room."""
+
+    def test_a_room_without_a_loss_is_monitored(self):
+        """A room the observer reads no loss in is shown as monitored."""
+        quiet = make_snapshot(
+            now_monotonic=3000.0, thermal_evidence=ThermalEvidence(observer=_observer())
+        )
+        assert _watch(quiet) == an.ParasiticLossWatch.MONITORING
+        assert (
+            _watch(replace(quiet, room_temperature=21.4))
+            == an.ParasiticLossWatch.MONITORING
+        )
+
+    def test_a_loss_above_the_target_is_shown_as_seen_and_not_counted(self):
+        """The user sees that a loss is read and why it is not suspected.
+
+        The detector stays silent on such a room, and silence alone would
+        read as a room nothing is wrong with.
+        """
+        snap = _loss_reading(room_temperature=21.4)
+        assert _watch(snap) == an.ParasiticLossWatch.LOSS_ABOVE_TARGET
+        stepped = an.step(
+            an.AnomalyState(),
+            snap,
+            control_mode=ControlMode.OPTIMAL,
+            heating_blocked_by=None,
+            contact_open=False,
+            addressed_trvs=("climate.trv1",),
+        )
+        assert stepped.parasitic_loss == an.FaultSlot()
+
+    def test_a_loss_whose_dwell_runs_is_shown_as_being_checked(self):
+        """A suspected loss is shown before it is found."""
+        suspect = an.AnomalyState(
+            parasitic_loss=an.FaultSlot(phase=an.FaultPhase.SUSPECT, since=2900.0)
+        )
+        assert _watch(_loss_reading(), suspect) == an.ParasiticLossWatch.CHECKING
+
+    @pytest.mark.parametrize(
+        "phase", [an.FaultPhase.ACTIVE, an.FaultPhase.RECOVERING, an.FaultPhase.EXPIRED]
+    )
+    def test_a_loss_that_is_reported_is_shown_as_detected(self, phase):
+        """The watch says detected for as long as the anomaly is reported."""
+        found = an.AnomalyState(
+            parasitic_loss=an.FaultSlot(phase=phase, since=2900.0, active_since=2000.0)
+        )
+        assert _watch(_loss_reading(), found) == an.ParasiticLossWatch.DETECTED
+
+    @pytest.mark.parametrize(
+        ("snapshot_overrides", "state", "conditions"),
+        [
+            ({}, an.AnomalyState(), {"contact_open": True}),
+            (
+                {},
+                an.AnomalyState(),
+                {"heating_blocked_by": HeatingBlock.DEVICES_RELEASED},
+            ),
+            ({}, an.AnomalyState(), {"heating_blocked_by": HeatingBlock.STARTUP}),
+            ({}, an.AnomalyState(), {"control_mode": ControlMode.SENSOR_FALLBACK}),
+            ({"thermal_evidence": ThermalEvidence()}, an.AnomalyState(), {}),
+            ({}, an.AnomalyState(last_rapid_loss_monotonic=2500.0), {}),
+        ],
+        ids=[
+            "contact_open",
+            "devices_released",
+            "startup",
+            "degraded_control",
+            "no_observer",
+            "after_a_rapid_loss",
+        ],
+    )
+    def test_a_room_the_detector_cannot_read_is_shown_as_paused(
+        self, snapshot_overrides, state, conditions
+    ):
+        """A detector that is not judging the room does not show it as monitored."""
+        snap = _loss_reading(**snapshot_overrides)
+        assert _watch(snap, state, **conditions) == an.ParasiticLossWatch.PAUSED
+
 
 class TestNoHeatDelivery:
     """Room-wide supply outage vs single-TRV failure when a sibling warms."""

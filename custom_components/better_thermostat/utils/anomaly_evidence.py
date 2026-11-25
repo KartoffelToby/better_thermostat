@@ -23,8 +23,10 @@ from ..core.fsm.anomaly import (
     AnomalyState,
     FaultPhase,
     FaultSlot,
+    ParasiticLossWatch,
     gating_codes,
     next_evaluation_monotonic,
+    parasitic_loss_watch,
     visible_codes,
 )
 from ..core.fsm.control_mode import ControlMode
@@ -329,6 +331,9 @@ class AnomalyEvidenceTracker:
     )
     _last_anomaly_detection: bool = field(default=False, init=False, repr=False)
     _last_now_monotonic: float = field(default=0.0, init=False, repr=False)
+    _parasitic_loss_watch: ParasiticLossWatch | None = field(
+        default=None, init=False, repr=False
+    )
 
     def reset(self) -> None:
         """Drop all accumulated evidence and return to the unarmed state."""
@@ -347,6 +352,16 @@ class AnomalyEvidenceTracker:
         self._last_anomaly_state = AnomalyState()
         self._last_anomaly_detection = False
         self._last_now_monotonic = 0.0
+        self._parasitic_loss_watch = None
+
+    @property
+    def parasitic_loss_watch(self) -> ParasiticLossWatch | None:
+        """What the parasitic-loss detector made of the room on the last cycle.
+
+        ``None`` while anomaly detection is off or no cycle has committed:
+        nothing watches the room then.
+        """
+        return self._parasitic_loss_watch
 
     @property
     def disturbance_baseline_kelvin_per_min(self) -> float:
@@ -794,6 +809,20 @@ class AnomalyEvidenceTracker:
         self._last_anomaly_state = anomaly_state
         self._last_anomaly_detection = anomaly_detection
         self._last_now_monotonic = now_monotonic
+        # A contact that is open and still debouncing counts as open here, as
+        # it does for the room's slope below: the window is open, whatever
+        # the region has committed, and the user is shown a paused detector.
+        self._parasitic_loss_watch = (
+            parasitic_loss_watch(
+                anomaly_state,
+                snapshot,
+                control_mode=control_mode,
+                heating_blocked_by=heating_blocked_by,
+                contact_open=contact_open,
+            )
+            if anomaly_detection
+            else None
+        )
 
         for entity_id, trv in snapshot.trvs.items():
             if trv.raw_temperature is None:

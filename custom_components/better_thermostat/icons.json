@@ -42,6 +42,16 @@
       },
       "pid_error": {
         "default": "mdi:thermometer-alert"
+      },
+      "sustained_heat_loss_detection": {
+        "default": "mdi:shield-search",
+        "state": {
+          "monitoring": "mdi:shield-search",
+          "paused": "mdi:pause-circle-outline",
+          "loss_above_target": "mdi:thermometer-chevron-up",
+          "checking": "mdi:timer-sand",
+          "detected": "mdi:alert-circle-outline"
+        }
       }
     },
     "binary_sensor": {
@@ -57,6 +67,34 @@
         "state": {
           "on": "mdi:weather-windy",
           "off": "mdi:weather-windy-variant"
+        }
+      },
+      "suspected_open_window": {
+        "default": "mdi:window-open-variant",
+        "state": {
+          "on": "mdi:window-open-variant",
+          "off": "mdi:window-closed-variant"
+        }
+      },
+      "sustained_heat_loss": {
+        "default": "mdi:door-open",
+        "state": {
+          "on": "mdi:door-open",
+          "off": "mdi:door-closed"
+        }
+      },
+      "no_heat_delivery": {
+        "default": "mdi:radiator-off",
+        "state": {
+          "on": "mdi:radiator-off",
+          "off": "mdi:radiator"
+        }
+      },
+      "valve_stuck_open": {
+        "default": "mdi:pipe-leak",
+        "state": {
+          "on": "mdi:pipe-leak",
+          "off": "mdi:pipe-valve"
         }
       }
     },

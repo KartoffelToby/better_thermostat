@@ -708,6 +708,7 @@ def compute_control_cycle(
             anomaly_gating_codes(post_state.anomaly, snapshot.now_monotonic)
         ):
             self.learning_held = True
+        watch_before = self.anomaly_evidence.parasitic_loss_watch
         self.anomaly_evidence.commit_cycle(
             snapshot,
             post_state.anomaly,
@@ -735,6 +736,17 @@ def compute_control_cycle(
         )
         if not block_changed and pre_visible != post_visible and self.hass is not None:
             self.async_write_ha_state()
+        # The anomaly entities also show the phase of a room-wide anomaly and
+        # what the parasitic-loss detector makes of the room. Neither is an
+        # attribute of the thermostat, so a change of them alone is announced.
+        if self.hass is not None and (
+            watch_before is not self.anomaly_evidence.parasitic_loss_watch
+            or pre_state.anomaly.rapid_loss.phase
+            is not post_state.anomaly.rapid_loss.phase
+            or pre_state.anomaly.parasitic_loss.phase
+            is not post_state.anomaly.parasitic_loss.phase
+        ):
+            announce_learned_state(self.hass, resolve_unique_id(self))
     if record:
         self.flight_recorder.record(snapshot, pre_state, desired)
     return snapshot, desired

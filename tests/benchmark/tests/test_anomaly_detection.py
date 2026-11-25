@@ -16,9 +16,15 @@ from ..adapters.mpc_adapter import MpcAdapter
 from ..adapters.mpc_v2_adapter import MpcV2Adapter
 from ..adapters.pid_adapter import PidAdapter
 from ..adapters.tpi_adapter import TpiAdapter
+from ..plant import (
+    PROFILE_REAL_LIVING_ROOM_RC3,
+    PROFILE_REALISTIC,
+    PROFILE_STANDARD_RC3,
+)
 from ..runner import run_scenario
 from ..scenarios import (
     S01_SETPOINT_STEP_SMALL,
+    S03_FROST_TO_COMFORT,
     S04_SETPOINT_DROP,
     S09_WINDOW_OPEN_SHORT,
     S10_WINDOW_OPEN_LONG,
@@ -155,14 +161,24 @@ def test_s42_open_interior_door_triggers_parasitic_loss_only() -> None:
         after_t_s=60 * 60.0,
     )
     assert onset is not None
+    # A door in a room held at its target is found within the dwell and the
+    # time the observer needs to read the loss: the guard on a room above its
+    # target must not push that back.
+    assert (onset - 60 * 60.0) <= 45 * 60.0
     for codes in series.anomalies:
         assert AnomalyCode.UNEXPECTED_RAPID_LOSS.value not in codes
 
 
 @pytest.mark.parametrize(
+    "plant",
+    [None, PROFILE_STANDARD_RC3, PROFILE_REAL_LIVING_ROOM_RC3, PROFILE_REALISTIC],
+    ids=["scenario_plant", "standard_rc3", "real_living_room_rc3", "realistic"],
+)
+@pytest.mark.parametrize(
     "scenario",
     [
         S01_SETPOINT_STEP_SMALL,
+        S03_FROST_TO_COMFORT,
         S04_SETPOINT_DROP,
         S09_WINDOW_OPEN_SHORT,
         S10_WINDOW_OPEN_LONG,
@@ -172,10 +188,14 @@ def test_s42_open_interior_door_triggers_parasitic_loss_only() -> None:
     ],
     ids=lambda s: s.name,
 )
-def test_baseline_scenarios_have_zero_false_positives(scenario) -> None:
-    """Verify baseline non-fault scenarios produce no false anomaly triggers."""
+def test_baseline_scenarios_have_zero_false_positives(scenario, plant) -> None:
+    """A room without a fault reports none, with a wall mass or without.
+
+    The observer models room air and radiator. A wall that stores heat is
+    outside that model, and what it draws from the room is no fault.
+    """
     monitored_scenario = replace(scenario, anomaly_detection=True)
-    res = run_scenario(MpcV2Adapter(), monitored_scenario)
+    res = run_scenario(MpcV2Adapter(), monitored_scenario, plant_params=plant)
     series = res.series
     assert series is not None
     non_empty = [

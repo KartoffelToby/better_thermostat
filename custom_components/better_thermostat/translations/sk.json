@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Zistená neočakávaná tepelná strata"
+      },
+      "suspected_open_window": {
+        "name": "Podozrenie na otvorené okno"
+      },
+      "sustained_heat_loss": {
+        "name": "Pretrvávajúca tepelná strata"
+      },
+      "no_heat_delivery": {
+        "name": "Žiadna dodávka tepla"
+      },
+      "valve_stuck_open": {
+        "name": "Ventil zaseknutý v otvorenej polohe"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "Odchýlka PID"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Detekcia pretrvávajúcej tepelnej straty",
+        "state": {
+          "monitoring": "Monitorovanie",
+          "paused": "Pozastavené",
+          "loss_above_target": "Strata zaznamenaná, miestnosť nad cieľovou teplotou",
+          "checking": "Kontroluje sa",
+          "detected": "Zistené"
+        }
       }
     }
   },

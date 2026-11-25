@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Unerwarteter Wärmeverlust erkannt"
+      },
+      "suspected_open_window": {
+        "name": "Vermutetes offenes Fenster"
+      },
+      "sustained_heat_loss": {
+        "name": "Anhaltender Wärmeverlust"
+      },
+      "no_heat_delivery": {
+        "name": "Keine Heizwirkung"
+      },
+      "valve_stuck_open": {
+        "name": "Ventil klemmt offen"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "PID-Abweichung"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Erkennung von anhaltendem Wärmeverlust",
+        "state": {
+          "monitoring": "Überwacht",
+          "paused": "Pausiert",
+          "loss_above_target": "Verlust gesehen, Raum über Soll",
+          "checking": "Wird geprüft",
+          "detected": "Erkannt"
+        }
       }
     }
   },

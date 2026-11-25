@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Uventet varmetab registreret"
+      },
+      "suspected_open_window": {
+        "name": "Mistænkt åbent vindue"
+      },
+      "sustained_heat_loss": {
+        "name": "Vedvarende varmetab"
+      },
+      "no_heat_delivery": {
+        "name": "Ingen varmetilførsel"
+      },
+      "valve_stuck_open": {
+        "name": "Ventil sidder fast åben"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "mpc_v2_predicted_disturbance": {
         "name": "MPC v2-forudsagt forstyrrelse"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Registrering af vedvarende varmetab",
+        "state": {
+          "monitoring": "Overvåger",
+          "paused": "Sat på pause",
+          "loss_above_target": "Tab set, rum over måltemperatur",
+          "checking": "Kontrollerer",
+          "detected": "Registreret"
+        }
       }
     }
   },

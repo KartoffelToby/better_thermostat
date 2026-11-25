@@ -464,6 +464,18 @@
       },
       "heat_loss_detected": {
         "name": "Εντοπίστηκε απροσδόκητη απώλεια θερμότητας"
+      },
+      "suspected_open_window": {
+        "name": "Πιθανό ανοιχτό παράθυρο"
+      },
+      "sustained_heat_loss": {
+        "name": "Συνεχής απώλεια θερμότητας"
+      },
+      "no_heat_delivery": {
+        "name": "Καμία παροχή θερμότητας"
+      },
+      "valve_stuck_open": {
+        "name": "Βαλβίδα κολλημένη ανοιχτή"
       }
     },
     "number": {
@@ -667,6 +679,16 @@
       },
       "pid_error": {
         "name": "Σφάλμα PID"
+      },
+      "sustained_heat_loss_detection": {
+        "name": "Ανίχνευση συνεχούς απώλειας θερμότητας",
+        "state": {
+          "monitoring": "Παρακολούθηση",
+          "paused": "Σε παύση",
+          "loss_above_target": "Απώλεια ορατή, χώρος πάνω από τον στόχο",
+          "checking": "Έλεγχος",
+          "detected": "Εντοπίστηκε"
+        }
       }
     }
   },

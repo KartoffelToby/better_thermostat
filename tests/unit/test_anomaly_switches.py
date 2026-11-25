@@ -26,6 +26,8 @@ from custom_components.better_thermostat.utils.anomaly_evidence import (
 )
 from tests.factories import ThermostatStandIn, make_state
 
+_CLIMATE = "custom_components.better_thermostat.climate"
+
 ACTIVE_FINDING = AnomalyState(
     rapid_loss=FaultSlot(phase=FaultPhase.ACTIVE, active_since=100.0)
 )
@@ -48,6 +50,7 @@ def _thermostat(
         **lifecycle,
     )
     bt.anomaly_evidence = AnomalyEvidenceTracker()
+    bt._unique_id = "bt_1"
     bt._anomaly_followup_task = None
     bt._anomaly_followup_due = None
     bt.control_queue_task = asyncio.Queue(maxsize=1)
@@ -104,6 +107,24 @@ async def test_disabling_detection_leaves_a_finished_timer_alone() -> None:
 
     assert bt._anomaly_followup_task is None
     assert not timer.cancelled()
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_switching_detection_tells_the_anomaly_entities(enabled: bool) -> None:
+    """The entities that show the detection follow the switch at once.
+
+    Whether detection is on is no attribute of the thermostat, so its
+    published state alone does not reach them.
+    """
+    bt, _ = _thermostat(detection=not enabled)
+
+    with (
+        patch(f"{_CLIMATE}.sync_anomaly_repairs_and_actions"),
+        patch(f"{_CLIMATE}.announce_learned_state") as announce,
+    ):
+        bt.set_anomaly_detection(enabled)
+
+    announce.assert_called_once_with(bt.hass, "bt_1")
 
 
 def test_setting_detection_it_already_has_changes_nothing() -> None:

@@ -31,7 +31,14 @@ LANGUAGES = [language for language in ALL_LANGUAGES if language != "en"]
 
 ENTITY_TRANSLATION_KEYS = {
     "climate": {"better_thermostat"},
-    "binary_sensor": {"heat_source_detected", "heat_loss_detected"},
+    "binary_sensor": {
+        "heat_source_detected",
+        "heat_loss_detected",
+        "suspected_open_window",
+        "sustained_heat_loss",
+        "no_heat_delivery",
+        "valve_stuck_open",
+    },
     "sensor": {
         "external_temp_ema",
         "external_temp_ema_1h",
@@ -47,6 +54,7 @@ ENTITY_TRANSLATION_KEYS = {
         "mpc_v2_disturbance",
         "mpc_v2_predicted_disturbance",
         "mpc_v2_room_time_constant",
+        "sustained_heat_loss_detection",
         "pid_output",
         "pid_error",
     },
