@@ -287,6 +287,38 @@ class TestCheckSystemMode:
 
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
+    @pytest.mark.asyncio
+    async def test_optimistic_mode_bounce_back_keeps_waiting_until_settled(self):
+        """An optimistic mode that reverts to the old mode keeps the watchdog open."""
+        mock_self, mock_state = self._mock_self(
+            live_state=HVACMode.HEAT, last_hvac_mode=HVACMode.HEAT
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.last_hvac_mode_sent = HVACMode.HEAT
+        observations: list[tuple[bool, str | None]] = []
+        match_checks = 0
+
+        async def _fake_sleep(_duration: float) -> None:
+            nonlocal match_checks
+            if _duration > 1.0:
+                match_checks += 1
+                if match_checks == 1:
+                    mock_state.state = HVACMode.OFF
+                else:
+                    mock_state.state = HVACMode.HEAT
+            else:
+                observations.append((trv.system_mode_received, trv.last_hvac_mode_sent))
+                mock_state.state = HVACMode.HEAT
+
+        with patch("asyncio.sleep", new=AsyncMock(side_effect=_fake_sleep)):
+            result = await check_system_mode(mock_self, "climate.trv1")
+
+        assert result is True
+        assert match_checks == 2
+        assert (False, HVACMode.HEAT) in observations
+        assert trv.system_mode_received is True
+        assert trv.last_hvac_mode_sent is None
+
 
 # ---------------------------------------------------------------------------
 # check_target_temperature
@@ -925,6 +957,140 @@ class TestCheckTargetTemperature:
 
         assert result is True
         # convert_to_float should handle string "21.0" and match float 21.0
+
+    @pytest.mark.asyncio
+    async def test_optimistic_setpoint_bounce_back_keeps_previous_confirmation(self):
+        """An optimistic setpoint reverting during settle preserves the old confirmation."""
+        trv = trv_record(
+            entity_id="climate.trv1",
+            confirmed_setpoint=19.5,
+            commanded_setpoint=17.5,
+            target_temperature_received=False,
+        )
+        watched = trv.remember_setpoint_written(17.5)
+        reported = State("climate.trv1", HVACMode.HEAT, {"temperature": 17.5})
+
+        mock_hass = MagicMock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.states.get.side_effect = lambda _entity_id: reported
+
+        mock_self = ThermostatStandIn()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        snapshots_on_revert: list[tuple[float | None, list[float], bool]] = []
+        settle_checks = 0
+
+        async def _fake_sleep(duration: float) -> None:
+            nonlocal reported, settle_checks
+            if duration > 1.0:
+                settle_checks += 1
+                if settle_checks == 1:
+                    reported = State(
+                        "climate.trv1", HVACMode.HEAT, {"temperature": 19.5}
+                    )
+            else:
+                snapshots_on_revert.append(
+                    (
+                        trv.confirmed_setpoint,
+                        list(trv.echo_setpoint_values()),
+                        trv.target_temperature_received,
+                    )
+                )
+                reported = State("climate.trv1", HVACMode.HEAT, {"temperature": 17.5})
+
+        with patch("asyncio.sleep", new=AsyncMock(side_effect=_fake_sleep)):
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 17.5
+            )
+
+        assert result is True
+        assert settle_checks == 2
+        assert snapshots_on_revert == [(19.5, [17.5], False)]
+        assert trv.confirmed_setpoint == 17.5
+        assert trv.echo_setpoint_values() == []
+        assert trv.target_temperature_received is True
+
+    @pytest.mark.asyncio
+    async def test_flapping_optimistic_setpoint_ends_on_timeout(self, caplog):
+        """A setpoint oscillating between match and stale value terminates at timeout."""
+        trv = _trv_awaiting_writes(17.5, 17.5)
+        trv.confirmed_setpoint = 19.5
+        reported = State("climate.trv1", HVACMode.HEAT, {"temperature": 17.5})
+
+        mock_hass = MagicMock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.states.get.side_effect = lambda _entity_id: reported
+
+        mock_self = ThermostatStandIn()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        async def _fake_sleep(duration: float) -> None:
+            nonlocal reported
+            setpoint = 19.5 if duration > 1.0 else 17.5
+            reported = State("climate.trv1", HVACMode.HEAT, {"temperature": setpoint})
+
+        with (
+            patch("asyncio.sleep", new=AsyncMock(side_effect=_fake_sleep)),
+            patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 6),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await _watch_last_write(mock_self, "climate.trv1")
+
+        assert result is True
+        assert trv.target_temperature_received is True
+        assert 17.5 in trv.echo_setpoint_values()
+        assert "did not confirm the target temperature" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_maintenance_echo_during_watchdog_survives_confirmation_without_superseding(
+        self,
+    ):
+        """A maintenance echo recorded during a confirmation settle pause survives confirmation."""
+        trv = trv_record(
+            entity_id="climate.trv1",
+            confirmed_setpoint=19.5,
+            commanded_setpoint=21.0,
+            target_temperature_received=False,
+        )
+        watched = trv.remember_setpoint_written(21.0)
+        reported = State("climate.trv1", HVACMode.HEAT, {"temperature": 21.0})
+
+        mock_hass = MagicMock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.states.get.return_value = reported
+
+        mock_self = ThermostatStandIn()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        recorded = False
+
+        async def _fake_sleep(duration: float) -> None:
+            nonlocal recorded
+            if duration > 1.0 and not recorded:
+                recorded = True
+                trv.remember_setpoint_echo(30.0)
+
+        with patch("asyncio.sleep", new=AsyncMock(side_effect=_fake_sleep)):
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 21.0
+            )
+
+        assert recorded is True
+        assert result is True
+        assert trv.last_setpoint_write_id == watched
+        assert trv.target_temperature_received is True
+        assert trv.confirmed_setpoint == 21.0
+        assert trv.echo_setpoint_values() == [30.0]
+
+        later = trv.remember_setpoint_written(22.0)
+        trv.remember_setpoint_confirmed(22.0, later)
+        assert trv.echo_setpoint_values() == []
 
 
 # ---------------------------------------------------------------------------

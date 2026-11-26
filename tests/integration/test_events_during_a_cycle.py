@@ -1265,3 +1265,155 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
 
     expected = target if turn == "none" else reported
     assert bt.heat_target_temperature == pytest.approx(expected)
+
+
+async def test_a_wake_up_jump_after_window_close_does_not_become_the_room_target(hass):
+    """Waking a TRV from off does not adopt its wake-up default setpoint.
+
+    When a window closes, Better Thermostat switches the TRV back from off to
+    heat. A TRV that briefly publishes a frost-protection setpoint and then
+    jumps to its maximum before settling keeps the room target untouched.
+    """
+    (fake_trv,) = await build_devices(hass, GENERIC_HEAT_TRV)
+    set_room_sensor(hass, 14.5)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(GENERIC_HEAT_TRV, with_window=True)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _settle(hass, bt)
+
+    with patch(WRITE_BUDGET, 0.0):
+        await _command(hass, temperature=18.0)
+        await _settle(hass, bt)
+        hass.states.async_set(WINDOW_ID, "on")
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.OFF)
+        await _settle(hass, bt)
+
+        switch_mode = fake_trv.async_set_hvac_mode
+
+        async def wake_with_two_setpoints(hvac_mode) -> None:
+            if hvac_mode != HVACMode.OFF:
+                fake_trv._attr_native_target_temperature = 7.0
+                await switch_mode(hvac_mode)
+                _operate(fake_trv, temperature=25.5)
+                return
+            await switch_mode(hvac_mode)
+
+        with patch.object(fake_trv, "async_set_hvac_mode", wake_with_two_setpoints):
+            hass.states.async_set(WINDOW_ID, "off")
+            assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
+            await _settle(hass, bt)
+
+        await _run_reconcile_tick(hass, bt)
+
+    assert bt.heat_target_temperature == pytest.approx(18.0)
+    assert fake_trv.native_target_temperature != pytest.approx(25.5)
+
+
+async def test_an_optimistic_write_followed_by_a_stale_report_is_not_adopted(hass):
+    """A delayed stale setpoint arriving right after an optimistic write is ignored.
+
+    Better Thermostat lowers a room whose TRV still sits warm, writing a
+    calibrated setpoint. The optimistic state briefly shows that new value,
+    then a delayed packet carries the old setpoint during the settle pause
+    before the device finally confirms the new setpoint.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV, room=17.5)
+    with patch(WRITE_BUDGET, 0.0):
+        await _command(hass, temperature=19.5)
+        await _settle(hass, bt)
+
+    old_setpoint = fake_trv.native_target_temperature
+    assert old_setpoint is not None
+    new_setpoint: float | None = None
+    injected_stale = False
+    confirmed_late = False
+    real_sleep = asyncio.sleep
+    set_temperature_orig = fake_trv.async_set_temperature
+
+    async def capture_written(**kwargs) -> None:
+        nonlocal new_setpoint
+        if "temperature" in kwargs and isinstance(kwargs["temperature"], float | int):
+            new_setpoint = float(kwargs["temperature"])
+        await set_temperature_orig(**kwargs)
+
+    async def scaled_sleep(delay: float, result=None):
+        nonlocal injected_stale, confirmed_late
+        if not delay or delay <= 0:
+            await real_sleep(0)
+            return result
+        if delay >= controlling.WRITE_CONFIRM_SETTLE_SECONDS:
+            ticks = 6
+        elif delay == controlling.TRV_STATE_SETTLE_S:
+            ticks = 3
+        elif delay >= 2:
+            ticks = 2
+        else:
+            ticks = 1
+        for tick in range(ticks):
+            await real_sleep(0.005)
+            if (
+                delay == controlling.TRV_STATE_SETTLE_S
+                and tick == 0
+                and not injected_stale
+            ):
+                injected_stale = True
+                _operate(fake_trv, temperature=old_setpoint)
+            if injected_stale and not confirmed_late and new_setpoint is not None:
+                if (
+                    fake_trv.native_target_temperature == old_setpoint
+                    and not bt.ignore_states
+                ):
+                    confirmed_late = True
+                    _operate(fake_trv, temperature=new_setpoint)
+        return result
+
+    with (
+        patch(WRITE_BUDGET, 0.0),
+        patch(CONFIRM_TIMEOUT, 10**9),
+        patch.object(fake_trv, "async_set_temperature", capture_written),
+        patch.object(controlling.asyncio, "sleep", scaled_sleep),
+    ):
+        await _command(hass, temperature=15.0)
+        assert await poll_until(
+            hass,
+            lambda: (
+                injected_stale
+                and not bt.ignore_states
+                and bt.real_trvs[TRV_ID].target_temperature_received
+            ),
+        )
+        await _handled(hass, bt)
+
+    assert injected_stale is True
+    assert bt.heat_target_temperature == pytest.approx(15.0)
+
+
+async def test_a_user_target_during_a_cycle_supersedes_an_earlier_held_trv_report(hass):
+    """A room target set during a cycle discards earlier held TRV reports.
+
+    While one head's write keeps the cycle running, another head reports a
+    lower setpoint and then the user sets a new room target in Home Assistant
+    before the cycle finishes. The newer room target stands once the cycle ends.
+    """
+    bt, (turned, held_head) = await _start(hass, TWO_HEADS)
+    turned_trv = bt.real_trvs[turned.entity_id]
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(held_head, "async_set_temperature") as held:
+            await _command(hass, temperature=21.0)
+            await held.wait_reached(hass)
+            assert await poll_until(
+                hass, lambda: turned_trv.target_temperature_received
+            )
+
+            _operate(turned, temperature=16.0)
+            assert bt.ignore_states, "the TRV report has to land inside the cycle"
+            await _command(hass, temperature=22.0)
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+
+        await _handled(hass, bt)
+        await _run_reconcile_tick(hass, bt)
+
+    assert bt.heat_target_temperature == pytest.approx(22.0)

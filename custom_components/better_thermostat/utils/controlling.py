@@ -252,6 +252,11 @@ FAILED_CYCLE_WARNING_INTERVAL_S = 3600.0
 # window instead of being taken as a change made at the device.
 TRV_STATE_SETTLE_S = 3.0
 
+# Pause a write watchdog waits after an optimistic match before confirming it.
+# Strictly longer than TRV_STATE_SETTLE_S so a delayed packet carrying the
+# replaced value during the settle pause cannot replay against a cleared record.
+WRITE_CONFIRM_SETTLE_SECONDS = 4.0
+
 # How long a write channel waits for the device to confirm a command
 # before its watchdog releases the in-flight flag and assumes the command
 # applied. Shared by the mode, setpoint and calibration watchdogs, so a
@@ -1555,6 +1560,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         The Better Thermostat climate entity instance
     """
     for entity_id, trv in list(self.real_trvs.items()):
+        trv.switched_on_during_cycle = False
         unread = trv.unread_report
         if unread is None:
             continue
@@ -2735,6 +2741,7 @@ async def control_trv(
     try:
         async with self._temperature_lock:
             self.real_trvs[entity_id].ignore_trv_states = True
+            self.real_trvs[entity_id].switched_on_during_cycle = False
             _suppression_owned = True
             # The run of cycles with the offset at its limit continues only
             # if this cycle follows the offset again below.
@@ -3119,6 +3126,11 @@ async def control_trv(
                     self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                     self.real_trvs[entity_id].last_hvac_mode_sent = _new_hvac_mode
                     self.real_trvs[entity_id].withdrawn_hvac_mode = None
+                    if (
+                        _reported_hvac_mode == HVACMode.OFF
+                        and _new_hvac_mode != HVACMode.OFF
+                    ):
+                        self.real_trvs[entity_id].switched_on_during_cycle = True
                     _mode_refused = False
                     _mode_unanswered = False
                     try:
@@ -3132,6 +3144,8 @@ async def control_trv(
                             )
                     except DeviceCallTimeoutError:
                         _mode_unanswered = True
+                    if _mode_refused and not _mode_unanswered:
+                        self.real_trvs[entity_id].switched_on_during_cycle = False
                     # A refused mode is written again by a later cycle that
                     # still finds the device in its old mode, once the mode
                     # channel's write budget lets it. Until it goes through, the
@@ -3330,6 +3344,14 @@ async def control_trv(
                 or trv_desired.suppression is not None
                 or not advanced_flag(_advanced, CONF_NO_OFF_SYSTEM_MODE)
             )
+            _live_setpoint_trv = self.hass.states.get(entity_id)
+            if _live_setpoint_trv is not None and not trv_report_is_unreadable(
+                self, entity_id, _live_setpoint_trv
+            ):
+                _trv = _live_setpoint_trv
+                _current_set_temperatures = get_current_set_temperatures(
+                    self, _trv, "controlling()"
+                )
             if _temperature is not None and (
                 _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
             ):
@@ -3542,7 +3564,14 @@ def _setpoint_turned_during_cycle(self: BetterThermostat, entity_id: str) -> boo
     unread = trv.unread_report
     if unread is None or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
-    if unread.state_before is not None and unread.state_before.state == HVACMode.OFF:
+    if (
+        trv.switched_on_during_cycle
+        or unread.hvac_mode_before == HVACMode.OFF
+        or (
+            unread.state_before is not None
+            and unread.state_before.state == HVACMode.OFF
+        )
+    ):
         return False
     before = read_setpoint_celsius(
         self, unread.state_before, TRV_SETPOINT_KEYS, "control_trv()"
@@ -3581,6 +3610,17 @@ def _mode_switched_during_cycle(
     return reported_mode not in (before.state, trv.last_hvac_mode)
 
 
+def _watchdog_state_unreadable(
+    state: State | None, *, state_unknown_as_available: bool
+) -> bool:
+    """Return whether a write watchdog should treat ``state`` as unavailable."""
+    return (
+        state is None
+        or state.state == STATE_UNAVAILABLE
+        or (state.state == STATE_UNKNOWN and not state_unknown_as_available)
+    )
+
+
 async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
     """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
 
@@ -3603,35 +3643,46 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
         Always returns True
     """
     _timeout = 0
+    _settled = False
+    _confirming = False
     trv = self.real_trvs[entity_id]
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
-        if (
-            _trv_state is None
-            or _trv_state.state == STATE_UNAVAILABLE
-            or (_trv_state.state == STATE_UNKNOWN and not state_unknown_as_available)
+        if _watchdog_state_unreadable(
+            _trv_state, state_unknown_as_available=state_unknown_as_available
         ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_system_mode",
                 self.device_name,
                 entity_id,
             )
+            _settled = _confirming
             break
+        assert _trv_state is not None
         # A device whose quirk reads `unknown` as operating cannot report the
         # mode back: the mode it is in is not one the climate entity
         # describes. Waiting for a match it will never make would hold the
         # write open for the full confirmation budget and then warn about a
         # device that is doing exactly what it was told.
-        if _trv_state.state == trv.last_hvac_mode or (
+        _mode_matches = _trv_state.state == trv.last_hvac_mode or (
             _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
-        ):
-            # A device seen holding the mode last sent has taken it, also
-            # when its report did not reach the inbound handler.
-            if _trv_state.state == trv.last_hvac_mode_sent:
-                trv.last_hvac_mode_sent = None
-            _timeout = 0
-            break
+        )
+        if _mode_matches:
+            if _confirming:
+                # A device seen holding the mode last sent has taken it, also
+                # when its report did not reach the inbound handler.
+                if _trv_state.state == trv.last_hvac_mode_sent:
+                    trv.last_hvac_mode_sent = None
+                _timeout = 0
+                _settled = True
+                break
+            _confirming = True
+            await asyncio.sleep(WRITE_CONFIRM_SETTLE_SECONDS)
+            _timeout += int(WRITE_CONFIRM_SETTLE_SECONDS)
+            continue
+        _was_confirming = _confirming
+        _confirming = False
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
@@ -3644,10 +3695,12 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
                 _trv_state.state,
             )
             _timeout = 0
+            _settled = _was_confirming
             break
         await asyncio.sleep(1)
         _timeout += 1
-    await asyncio.sleep(2)
+    if not _settled:
+        await asyncio.sleep(WRITE_CONFIRM_SETTLE_SECONDS)
     trv.system_mode_received = True
     return True
 
@@ -3692,23 +3745,25 @@ async def check_target_temperature(
         Always returns True
     """
     _timeout = 0
+    _settled = False
+    _confirming = False
     trv = self.real_trvs[entity_id]
     _awaited_setpoint = setpoint
     _awaited_write_id = write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
-        if (
-            _trv_state is None
-            or _trv_state.state == STATE_UNAVAILABLE
-            or (_trv_state.state == STATE_UNKNOWN and not state_unknown_as_available)
+        if _watchdog_state_unreadable(
+            _trv_state, state_unknown_as_available=state_unknown_as_available
         ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_target_temperature",
                 self.device_name,
                 entity_id,
             )
+            _settled = _confirming
             break
+        assert _trv_state is not None
         # See get_current_set_temperatures() docstring for why we accept a
         # match on either the single-setpoint or range-low attribute.
         _current_set_temperatures = get_current_set_temperatures(
@@ -3729,6 +3784,7 @@ async def check_target_temperature(
         # grids.
         if not _current_set_temperatures:
             _timeout = 0
+            _settled = _confirming
             break
         if matches_any_setpoint(
             as_published_setpoint(
@@ -3736,11 +3792,19 @@ async def check_target_temperature(
             ),
             _current_set_temperatures,
         ):
-            trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
-            if trv.last_setpoint_write_id == _awaited_write_id:
-                clear_unapplied_setpoint(self, entity_id)
-            _timeout = 0
-            break
+            if _confirming:
+                trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
+                if trv.last_setpoint_write_id == _awaited_write_id:
+                    clear_unapplied_setpoint(self, entity_id)
+                _timeout = 0
+                _settled = True
+                break
+            _confirming = True
+            await asyncio.sleep(WRITE_CONFIRM_SETTLE_SECONDS)
+            _timeout += int(WRITE_CONFIRM_SETTLE_SECONDS)
+            continue
+        _was_confirming = _confirming
+        _confirming = False
         if trv.last_setpoint_write_id != _awaited_write_id:
             _LOGGER.debug(
                 "better_thermostat %s: a newer setpoint write superseded the one "
@@ -3776,10 +3840,12 @@ async def check_target_temperature(
             ):
                 trv.remember_setpoint_confirmed(_held_setpoint, trv.confirmed_write_id)
             _timeout = 0
+            _settled = _was_confirming
             break
         await asyncio.sleep(1)
         _timeout += 1
-    await asyncio.sleep(2)
+    if not _settled:
+        await asyncio.sleep(WRITE_CONFIRM_SETTLE_SECONDS)
 
     if trv.last_setpoint_write_id == _awaited_write_id:
         trv.target_temperature_received = True

@@ -301,6 +301,53 @@ class TestEchoSetpoints:
         assert seeded.echo_setpoint_values() == [26.0]
         assert bare.echo_setpoint_values() == []
 
+    def test_remember_setpoint_echo_without_active_watchdog_survives_zero_retire_and_retires_on_later_write(
+        self,
+    ):
+        """An unconfirmed echo survives stale confirmations and retires on a later write."""
+        trv = trv_record(
+            entity_id="climate.trv",
+            confirmed_setpoint=21.0,
+            confirmed_write_id=2,
+            last_setpoint_write_id=2,
+        )
+        trv.remember_setpoint_echo(30.0)
+        assert trv.echo_setpoint_values() == [30.0]
+        assert trv.last_setpoint_write_id == 2
+        assert trv.last_setpoint_echo_id == 3
+
+        trv.remember_setpoint_confirmed(21.0, trv.confirmed_write_id)
+        assert trv.echo_setpoint_values() == [30.0]
+
+        later_id = trv.remember_setpoint_written(21.0)
+        assert later_id == 4
+        assert trv.last_setpoint_write_id == 4
+        trv.remember_setpoint_confirmed(21.0, later_id)
+        assert trv.echo_setpoint_values() == []
+
+    def test_remember_setpoint_echo_survives_active_watchdog_confirmation(self):
+        """An echo recorded while a watchdog is active survives its confirmation."""
+        trv = trv_record(
+            entity_id="climate.trv", confirmed_write_id=1, last_setpoint_write_id=1
+        )
+        active_id = trv.remember_setpoint_written(21.0)
+        assert active_id == 2
+        assert trv.last_setpoint_write_id == 2
+
+        trv.remember_setpoint_echo(30.0)
+        assert trv.last_setpoint_write_id == active_id
+        assert trv.echo_setpoint_values() == [21.0, 30.0]
+
+        trv.remember_setpoint_confirmed(21.0, active_id)
+        assert trv.confirmed_setpoint == 21.0
+        assert trv.echo_setpoint_values() == [30.0]
+
+        later_id = trv.remember_setpoint_written(22.0)
+        assert later_id > active_id
+        assert trv.last_setpoint_write_id == later_id
+        trv.remember_setpoint_confirmed(22.0, later_id)
+        assert trv.echo_setpoint_values() == []
+
 
 class TestTrvCapabilities:
     """Capabilities derive from the discovered device surface."""

@@ -184,20 +184,23 @@ def _hold_report(
         and _reports_on(new_state)
     )
     pressed_after_switch_on = (
-        unread is not None
+        not trv.switched_on_during_cycle
+        and unread is not None
         and unread.hvac_mode_before == HVACMode.OFF
         and _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint != _held_setpoint(self, new_state)
     )
     if unread is None or returned or moved_after_return:
-        unread = UnreadReport(state_before=old_state, hvac_mode_before=trv.hvac_mode)
+        mode_before = HVACMode.OFF if trv.switched_on_during_cycle else trv.hvac_mode
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=mode_before)
     if switched_on_after_first_report:
         unread = UnreadReport(state_before=old_state, hvac_mode_before=HVACMode.OFF)
     if pressed_after_switch_on:
         unread = UnreadReport(state_before=old_state, hvac_mode_before=old_state.state)
     if (
         not copied
+        and not trv.switched_on_during_cycle
         and _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint is not None

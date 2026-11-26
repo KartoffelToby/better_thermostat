@@ -7,12 +7,14 @@ maintenance defer that must not enqueue a control action mid-exercise.
 from unittest.mock import MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
-from tests.factories import ThermostatStandIn
+from custom_components.better_thermostat.trv import Trv, UnreadReport
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -27,6 +29,7 @@ def bt():
     mock.in_maintenance = False
     mock._control_needed_after_maintenance = False
     mock.clock = FakeClock()
+    mock.real_trvs = dict[str, Trv]()
     mock.async_write_ha_state = MagicMock()
     mock.control_queue_task = MagicMock()
     return mock
@@ -89,3 +92,42 @@ async def test_a_mode_change_is_stamped_as_a_user_change(bt):
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
         await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
     assert bt.last_user_change_monotonic == 123.0
+
+
+@pytest.mark.asyncio
+async def test_mode_change_discards_held_trv_reports(bt):
+    """A mode command discards held reports from controlled TRVs."""
+    controlled = trv_record(
+        entity_id="climate.controlled",
+        unread_report=UnreadReport(
+            state_before=State(
+                "climate.controlled", HVACMode.HEAT, {"temperature": 21.0}
+            ),
+            hvac_mode_before=HVACMode.HEAT,
+        ),
+        held_turn=(
+            State("climate.controlled", HVACMode.HEAT, {"temperature": 21.0}),
+            State("climate.controlled", HVACMode.HEAT, {"temperature": 22.0}),
+        ),
+        switched_on_during_cycle=True,
+    )
+    released_report = UnreadReport(
+        state_before=State("climate.released", HVACMode.HEAT, {"temperature": 21.0}),
+        hvac_mode_before=HVACMode.HEAT,
+    )
+    released = trv_record(
+        entity_id="climate.released",
+        unread_report=released_report,
+        switched_on_during_cycle=True,
+    )
+    bt.real_trvs = {"climate.controlled": controlled, "climate.released": released}
+    bt.released_trvs = {"climate.released"}
+
+    with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
+        await BetterThermostat.async_set_hvac_mode(bt, HVACMode.OFF)
+
+    assert controlled.unread_report is None
+    assert controlled.held_turn is None
+    assert controlled.switched_on_during_cycle is False
+    assert released.unread_report is released_report
+    assert released.switched_on_during_cycle is True

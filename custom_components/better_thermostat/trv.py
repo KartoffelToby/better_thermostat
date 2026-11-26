@@ -239,6 +239,11 @@ class Trv:
     # and the ones before it, never a write made while the wait ran, and a
     # watchdog whose id is no longer the last one has been superseded.
     last_setpoint_write_id: int = 0
+    # Highest monotonic sequence id issued across watched control writes and
+    # unwatched echo records, so an echo added while a control watchdog waits
+    # outlives that watchdog's confirmation without advancing
+    # ``last_setpoint_write_id`` or making the watchdog look superseded.
+    last_setpoint_echo_id: int = 0
     # The highest write id a confirmation has already covered. Handing a
     # shared device over releases the heating channel's pending confirmation
     # without stopping its watchdog, so two can run at once and answer out of
@@ -287,6 +292,10 @@ class Trv:
     # hides the turn from the state the end of the cycle reads, so the turn
     # is read first.
     held_turn: tuple[State, State] | None = None
+    # Whether the current control cycle sent a mode write that switches this
+    # TRV on from ``off``. While set, multi-step wake-up setpoint reports
+    # during the cycle are judged against off rather than taken as a press.
+    switched_on_during_cycle: bool = False
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
     # ``last_calibration_requested`` is the value asked for before that
@@ -386,6 +395,7 @@ class Trv:
         self.unread_report = None
         self.held_turn = None
         self.temperature_moved_while_held = False
+        self.switched_on_during_cycle = False
 
     def forget_external_temperature_writes(self) -> None:
         """Forget what the quirks last sent the device as the room temperature.
@@ -420,6 +430,28 @@ class Trv:
         self.accept_next_internal_temperature = False
         return accepted
 
+    def _next_setpoint_id(self) -> int:
+        """Issue the next strictly monotonic id across writes and echoes."""
+        next_id = (
+            max(
+                self.last_setpoint_write_id,
+                self.last_setpoint_echo_id,
+                self.confirmed_write_id,
+            )
+            + 1
+        )
+        self.last_setpoint_echo_id = next_id
+        return next_id
+
+    def _append_pending_setpoint(self, value: float, write_id: int) -> None:
+        """Append ``(value, write_id)`` to the bounded pending-echo list."""
+        self.pending_setpoints = [
+            pending for pending in self.pending_setpoints if pending.value != value
+        ]
+        self.pending_setpoints.append(PendingSetpoint(value, write_id))
+        if len(self.pending_setpoints) > ECHO_SETPOINTS_LIMIT:
+            del self.pending_setpoints[0]
+
     def remember_setpoint_written(self, value: float | None) -> int:
         """Add a written setpoint to the values a report may echo.
 
@@ -441,16 +473,26 @@ class Trv:
         """
         if value is None:
             return self.last_setpoint_write_id
-        self.last_setpoint_write_id += 1
-        self.pending_setpoints = [
-            pending for pending in self.pending_setpoints if pending.value != value
-        ]
-        self.pending_setpoints.append(
-            PendingSetpoint(value, self.last_setpoint_write_id)
-        )
-        if len(self.pending_setpoints) > ECHO_SETPOINTS_LIMIT:
-            del self.pending_setpoints[0]
-        return self.last_setpoint_write_id
+        write_id = self._next_setpoint_id()
+        self.last_setpoint_write_id = write_id
+        self._append_pending_setpoint(value, write_id)
+        return write_id
+
+    def remember_setpoint_echo(self, value: float) -> None:
+        """Record a setpoint left on the device as an echo candidate.
+
+        Issues a sequence id strictly greater than any active watchdog's write
+        id without advancing ``last_setpoint_write_id``, so the active watchdog
+        is neither treated as superseded nor able to retire this echo when it
+        confirms; only a subsequent write confirmation retires it.
+
+        Parameters
+        ----------
+        value : float
+            the setpoint in °C that may still arrive in a delayed report
+        """
+        echo_id = self._next_setpoint_id()
+        self._append_pending_setpoint(value, echo_id)
 
     def echo_setpoint_values(self) -> list[float]:
         """List the setpoints still on the wire, oldest write first.

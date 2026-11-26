@@ -689,6 +689,81 @@ class TestReportsHeldDuringACycle:
         assert thermostat.heat_target_temperature == 24.0
         request.assert_called_once_with(thermostat)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("initial_skipped_by_context", [False, True])
+    async def test_wake_up_setpoint_after_cycle_switch_on_is_not_adopted(
+        self, thermostat, reported_states, initial_skipped_by_context
+    ):
+        """Wake-up setpoint transitions after BT switches a head on keep the room target.
+
+        A TRV switched on from off during a cycle can publish an intermediate
+        setpoint before waking to another default setpoint, or have its initial
+        mode transition dropped under Better Thermostat's context before a
+        setpoint report arrives.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = HVACMode.OFF
+        trv.last_hvac_mode = HVACMode.HEAT
+        trv.switched_on_during_cycle = True
+        off_state = _reported_state(HVACMode.OFF, setpoint=7.0)
+        wake_initial = _reported_state(HVACMode.HEAT, setpoint=7.0)
+        wake_jump = _reported_state(HVACMode.HEAT, setpoint=25.5)
+        reported_states[ENTITY_ID] = off_state
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        if initial_skipped_by_context:
+            context = thermostat.context
+            first_old, first_new = off_state, wake_initial
+            reported_states[ENTITY_ID] = first_new
+            first_event = MagicMock()
+            first_event.data = {
+                "old_state": first_old,
+                "new_state": first_new,
+                "entity_id": ENTITY_ID,
+            }
+            first_event.context = context
+            await trigger_trv_change(thermostat, first_event)
+            reports = [(wake_initial, wake_jump, context)]
+        else:
+            reports = [
+                (off_state, wake_initial, MagicMock()),
+                (wake_initial, wake_jump, MagicMock()),
+            ]
+
+        for old_state, new_state, context in reports:
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = context
+            await trigger_trv_change(thermostat, event)
+
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.heat_target_temperature == 19.0
+        assert trv.switched_on_during_cycle is False
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    async def test_cycle_switch_on_flag_clears_even_without_held_reports(
+        self, thermostat
+    ):
+        """The cycle switch-on marker resets at cycle end without a held report."""
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.switched_on_during_cycle = True
+        trv.unread_report = None
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert trv.switched_on_during_cycle is False
+
 
 class TestHeldReportAgainstThePreviousState:
     """A report read at cycle end is judged against the state it replaced."""

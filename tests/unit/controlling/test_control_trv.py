@@ -5052,6 +5052,79 @@ class TestPressesDuringACycle:
         mock_set_hvac.assert_called_once()
         assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
 
+    def test_wake_up_after_cycle_switch_on_is_not_treated_as_a_user_turn(self):
+        """A setpoint moved after a switch-on from off does not pause setpoint writes."""
+        trv = self._pressed_trv(before=HVACMode.HEAT)
+        trv.unread_report = UnreadReport(
+            state_before=State(
+                "climate.trv1", HVACMode.HEAT, attributes={"temperature": 7.0}
+            ),
+            hvac_mode_before=HVACMode.OFF,
+        )
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 25.5},
+            real_trvs={"climate.trv1": trv},
+        )
+        assert _setpoint_turned_during_cycle(mock_self, "climate.trv1") is False
+
+        trv.unread_report = UnreadReport(
+            state_before=State(
+                "climate.trv1", HVACMode.HEAT, attributes={"temperature": 7.0}
+            ),
+            hvac_mode_before=HVACMode.HEAT,
+        )
+        trv.switched_on_during_cycle = True
+        assert _setpoint_turned_during_cycle(mock_self, "climate.trv1") is False
+
+    @pytest.mark.asyncio
+    async def test_control_trv_refreshes_setpoints_after_switching_mode_on(self):
+        """A setpoint change during mode switch-on is corrected in the same cycle."""
+        trv = _default_trv_config(
+            last_hvac_mode=HVACMode.OFF,
+            hvac_mode=HVACMode.OFF,
+            commanded_setpoint=22.0,
+            system_mode_received=True,
+        )
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 22.0},
+            heat_target_temperature=22.0,
+            real_trvs={"climate.trv1": trv},
+        )
+        live_state = State(
+            "climate.trv1", HVACMode.OFF, attributes={"temperature": 22.0}
+        )
+        mock_self.hass.states.get.side_effect = lambda _entity_id: live_state
+
+        async def _switch_on(_bt, _entity_id, mode):
+            nonlocal live_state
+            if mode == HVACMode.HEAT:
+                live_state = State(
+                    "climate.trv1", HVACMode.HEAT, attributes={"temperature": 25.5}
+                )
+            return True
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True, side_effect=_switch_on),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 22.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            assert await control_trv(mock_self, "climate.trv1") is True
+
+        mock_set_temperature.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
+
 
 # ---------------------------------------------------------------------------
 # Mode write pacing
