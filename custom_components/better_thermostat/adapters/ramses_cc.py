@@ -19,9 +19,6 @@ from .generic import (
     get_max_calibration_offset,
     get_min_calibration_offset,
     init,
-    set_calibration_offset,
-    set_hvac_mode,
-    set_valve,
 )
 from .types import AdapterHost, AdapterProbeHost
 
@@ -78,39 +75,24 @@ def validate_zone(hass: HomeAssistant, entity_id: str) -> tuple[float, float]:
 
 
 async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
+    """Get info from TRV."""
     return DeviceChannels(offset_write=False, valve_write=False)
 
 
-async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
-    """Control heating without RAMSES RF's default 25°C."""
-
-    if hvac_mode == "heat":
-        _LOGGER.debug("RAMSES %s: heat requested, awaiting setpoint", entity_id)
-        return
-
-    if hvac_mode == "off":
-        state = self.hass.states.get(entity_id)
-        if not state_is_live(state):
-            raise WriteWithheldError(f"{entity_id} is unavailable")
-
-        low, _ = validate_zone(self.hass, entity_id)
-
-        await self.hass.services.async_call(
-            "ramses_cc",
-            "set_zone_mode",
-            {"entity_id": entity_id, "mode": "permanent_override", "setpoint": low},
-            blocking=True,
-            context=self.context,
-        )
-        return
-
-    raise HomeAssistantError(f"Unsupported RAMSES HVAC mode: {hvac_mode}")
-
-
-async def set_temperature(
-    self: AdapterHost, entity_id: str, temperature: float
+async def set_zone_override(
+    self: AdapterHost, entity_id: str, hvac_mode: str, temperature: float | None
 ) -> None:
-    """Apply calculated setpoint as permanent override."""
+    """Set zone temperature and handle HVAC states.
+
+    The default behavior of RAMSES is to set the target temperature to 25
+    degrees Celsius when the 'heat' HVAC mode is selected. That leads to the
+    conflict between Better Thermostat and RAMSES. While the first one is
+    trying to set the desired temperature, RAMSES keeps switching it to
+    the default
+
+    The workaround is to use the 'set_zone_mode' action provided by RAMSES,
+    which allows setting permament overrides for the zone.
+    """
 
     state = self.hass.states.get(entity_id)
     if not state_is_live(state):
@@ -118,10 +100,24 @@ async def set_temperature(
 
     low, high = validate_zone(self.hass, entity_id)
 
-    if not math.isfinite(temperature) or not low <= temperature <= high:
+    if hvac_mode == "off":
+        temperature = low
+    elif hvac_mode != "heat":
+        raise HomeAssistantError(f"Unsupported RAMSES HVAC mode: {hvac_mode}")
+
+    if (
+        temperature is None
+        or not math.isfinite(temperature)
+        or not low <= temperature <= high
+    ):
         raise HomeAssistantError(f"Invalid RAMSES setpoint: {temperature}")
 
-    _LOGGER.debug("RAMSES %s: permanent override %.1f°C", entity_id, temperature)
+    _LOGGER.debug(
+        "RAMSES %s: HVAC mode '%s' with permanent override %.1f°C",
+        entity_id,
+        hvac_mode,
+        temperature,
+    )
 
     await self.hass.services.async_call(
         "ramses_cc",
@@ -130,3 +126,33 @@ async def set_temperature(
         blocking=True,
         context=self.context,
     )
+
+
+async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
+    """Control heating without RAMSES RF's default 25°C."""
+
+    # Temperature is applied by set_temperature().
+    if hvac_mode == "heat":
+        return
+
+    await set_zone_override(self, entity_id, hvac_mode, None)
+
+
+async def set_temperature(
+    self: AdapterHost, entity_id: str, temperature: float
+) -> None:
+    """Apply calculated setpoint as permanent override."""
+
+    await set_zone_override(self, entity_id, "heat", temperature)
+
+
+async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> None:
+    """Evohome zones expose no writable valve state."""
+    return None
+
+
+async def set_calibration_offset(
+    self: AdapterHost, entity_id: str, calibration_offset: float
+) -> bool:
+    """Evohome zones expose no writable calibration offset."""
+    return False
