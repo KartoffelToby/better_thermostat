@@ -301,6 +301,42 @@ class TestEchoSetpoints:
         assert seeded.echo_setpoint_values() == [26.0]
         assert bare.echo_setpoint_values() == []
 
+    def test_remember_setpoint_echo_without_active_watchdog_survives_zero_retire_and_retires_on_later_write(
+        self,
+    ):
+        """An unconfirmed echo survives stale confirmations and retires on a later write."""
+        trv = trv_record(
+            entity_id="climate.trv",
+            confirmed_setpoint=21.0,
+            confirmed_write_id=2,
+            last_setpoint_write_id=2,
+        )
+        trv.remember_setpoint_echo(30.0)
+        assert trv.echo_setpoint_values() == [30.0]
+        assert trv.last_setpoint_write_id == 3
+
+        trv.remember_setpoint_confirmed(21.0, trv.confirmed_write_id)
+        assert trv.echo_setpoint_values() == [30.0]
+
+        later_id = trv.remember_setpoint_written(21.0)
+        trv.remember_setpoint_confirmed(21.0, later_id)
+        assert trv.echo_setpoint_values() == []
+
+    def test_remember_setpoint_echo_preserves_active_watchdog_write_id(self):
+        """Recording an echo while a write watchdog is active keeps the active write id."""
+        trv = trv_record(
+            entity_id="climate.trv", confirmed_write_id=1, last_setpoint_write_id=1
+        )
+        active_id = trv.remember_setpoint_written(21.0)
+        assert trv.last_setpoint_write_id == 2
+
+        trv.remember_setpoint_echo(30.0)
+        assert trv.last_setpoint_write_id == active_id
+        assert trv.echo_setpoint_values() == [21.0, 30.0]
+
+        trv.remember_setpoint_confirmed(21.0, active_id)
+        assert trv.echo_setpoint_values() == []
+
 
 class TestTrvCapabilities:
     """Capabilities derive from the discovered device surface."""

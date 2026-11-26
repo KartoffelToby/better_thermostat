@@ -13,7 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.core import State
+from homeassistant.const import EVENT_STATE_CHANGED, UnitOfTemperature
+from homeassistant.core import Event, EventStateChangedData, State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
@@ -24,6 +25,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceDue,
     start_run,
 )
+from custom_components.better_thermostat.events.trv import trigger_trv_change
 from custom_components.better_thermostat.trv import UnreadReport
 from tests.factories import ThermostatStandIn, trv_record
 
@@ -176,8 +178,178 @@ async def test_failed_maintenance_restores_previous_commanded_setpoint(bt):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
 
     assert trv.commanded_setpoint == 21.0
+    assert trv.echo_setpoint_values() == [30.0]
     assert trv.target_temperature_received is True
     bt.task_manager.create_task.assert_not_called()
+
+
+def _configure_trv_event_host(bt, trv, live_state: State) -> None:
+    """Populate the ThermostatStandIn fields read during maintenance and TRV events."""
+    bt._temperature_lock = asyncio.Lock()
+    bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    bt.hass.states.get.return_value = live_state
+    bt.entity_id = "climate.test_bt"
+    bt.hvac_mode = HVACMode.HEAT
+    bt.map_on_hvac_mode = HVACMode.HEAT
+    bt.heat_target_temperature = 21.0
+    bt.bt_min_temp = 5.0
+    bt.bt_max_temp = 35.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
+    bt.cool_target_temperature = 25.0
+    bt.bt_target_temperature_step = 0.5
+    bt.window_open = False
+    bt.door_open = False
+    bt.contact_open = False
+    bt.startup_running = False
+    bt.bt_update_lock = False
+    bt.cooler_entity_id = None
+    bt.context = MagicMock()
+    bt.async_write_ha_state = MagicMock()
+    bt.task_manager = MagicMock()
+    bt._clamp_inbound_heat_target = lambda value: (
+        BetterThermostat._clamp_inbound_heat_target(bt, value)
+    )
+    bt._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
+    )
+    trv.commanded_setpoint = 21.0
+    trv.target_temperature_received = True
+    trv.system_mode_received = True
+    trv.hvac_mode = HVACMode.HEAT
+    trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scenario", ["no_restore", "restore_cancelled_mid_flight", "restore_unconfirmed"]
+)
+async def test_cancelled_maintenance_unconfirmed_restore_keeps_echo_for_trigger_trv_change(
+    bt, scenario
+):
+    """An unconfirmed restore after cancelled maintenance keeps the maintenance setpoint as an echo."""
+    trv = bt.real_trvs["climate.trv"]
+    live_state = State("climate.trv", HVACMode.HEAT, {"temperature": 30.0})
+    _configure_trv_event_host(bt, trv, live_state)
+    snapshots = MagicMock(
+        return_value=[SimpleNamespace(entity_id="climate.trv", setpoint=21.0)]
+    )
+
+    async def _exercise(infos, *, set_temperature_fn, **kwargs):
+        await set_temperature_fn("climate.trv", 30.0)
+        if scenario == "no_restore":
+            raise asyncio.CancelledError
+        await set_temperature_fn("climate.trv", 21.0)
+        raise asyncio.CancelledError
+
+    async def _fake_set_temperature(_bt, entity_id, temperature):
+        bt.real_trvs[entity_id].commanded_setpoint = temperature
+        if scenario == "restore_cancelled_mid_flight" and temperature == 21.0:
+            raise asyncio.CancelledError
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", snapshots),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _fake_set_temperature),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert trv.commanded_setpoint == 21.0
+    assert trv.echo_setpoint_values() == [30.0]
+    bt.task_manager.create_task.assert_not_called()
+
+    delayed_report = Event(
+        EVENT_STATE_CHANGED,
+        EventStateChangedData(
+            entity_id="climate.trv",
+            old_state=State("climate.trv", HVACMode.HEAT, {"temperature": 21.0}),
+            new_state=live_state,
+        ),
+    )
+    await trigger_trv_change(bt, delayed_report)
+    assert bt.heat_target_temperature == 21.0
+
+    later_id = trv.remember_setpoint_written(21.0)
+    trv.remember_setpoint_confirmed(21.0, later_id)
+    assert trv.echo_setpoint_values() == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_maintenance_confirmed_restore_leaves_echoes_unchanged(bt):
+    """A confirmed restore before cancellation adds no maintenance setpoint echo."""
+    bt._temperature_lock = asyncio.Lock()
+    trv = bt.real_trvs["climate.trv"]
+    trv.commanded_setpoint = 21.0
+    bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    bt.hass.states.get.return_value = State(
+        "climate.trv", HVACMode.HEAT, {"temperature": 21.0}
+    )
+    bt.task_manager = MagicMock()
+    snapshots = MagicMock(
+        return_value=[SimpleNamespace(entity_id="climate.trv", setpoint=21.0)]
+    )
+
+    async def _exercise(infos, *, set_temperature_fn, **kwargs):
+        await set_temperature_fn("climate.trv", 30.0)
+        await set_temperature_fn("climate.trv", 21.0)
+        raise asyncio.CancelledError
+
+    async def _fake_set_temperature(_bt, entity_id, temperature):
+        bt.real_trvs[entity_id].commanded_setpoint = temperature
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", snapshots),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _fake_set_temperature),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert trv.commanded_setpoint == 21.0
+    assert trv.echo_setpoint_values() == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_maintenance_mid_first_write_keeps_attempted_setpoint_as_echo(
+    bt,
+):
+    """Cancelling during the first maintenance write preserves that setpoint as an echo."""
+    bt._temperature_lock = asyncio.Lock()
+    trv = bt.real_trvs["climate.trv"]
+    trv.commanded_setpoint = 21.0
+    bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    bt.hass.states.get.return_value = State(
+        "climate.trv", HVACMode.HEAT, {"temperature": 30.0}
+    )
+    bt.task_manager = MagicMock()
+    snapshots = MagicMock(
+        return_value=[SimpleNamespace(entity_id="climate.trv", setpoint=21.0)]
+    )
+
+    async def _exercise(infos, *, set_temperature_fn, **kwargs):
+        await set_temperature_fn("climate.trv", 30.0)
+
+    async def _fake_set_temperature(_bt, entity_id, temperature):
+        bt.real_trvs[entity_id].commanded_setpoint = temperature
+        raise asyncio.CancelledError
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", snapshots),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _fake_set_temperature),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert trv.commanded_setpoint == 21.0
+    assert trv.echo_setpoint_values() == [30.0]
 
 
 @pytest.mark.asyncio

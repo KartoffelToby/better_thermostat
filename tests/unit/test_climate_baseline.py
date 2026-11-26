@@ -20,12 +20,13 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.core import State
 from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, UnreadReport
 from custom_components.better_thermostat.utils.helpers import InboundSetpoint
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
 from custom_components.better_thermostat.utils.thermal_learning import (
@@ -33,7 +34,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatLossTracker,
     Reading,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -1164,6 +1165,56 @@ class TestAsyncSetTemperature:
         mock_bt.async_write_ha_state.assert_called_once()
         assert mock_bt._control_needed_after_maintenance is True
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mode_only_payload_discards_held_reports_without_snapshotting_setpoint(
+        self, mock_bt
+    ):
+        """A mode-only temperature service call drops held reports without snapshotting."""
+        controlled = trv_record(
+            entity_id="climate.controlled",
+            unread_report=UnreadReport(
+                state_before=State(
+                    "climate.controlled", HVACMode.HEAT, {"temperature": 21.0}
+                ),
+                hvac_mode_before=HVACMode.HEAT,
+            ),
+            held_turn=(
+                State("climate.controlled", HVACMode.HEAT, {"temperature": 21.0}),
+                State("climate.controlled", HVACMode.HEAT, {"temperature": 22.0}),
+            ),
+            switched_on_during_cycle=True,
+            confirmed_setpoint=20.0,
+        )
+        released_report = UnreadReport(
+            state_before=State(
+                "climate.released", HVACMode.HEAT, {"temperature": 21.0}
+            ),
+            hvac_mode_before=HVACMode.HEAT,
+        )
+        released = trv_record(
+            entity_id="climate.released",
+            unread_report=released_report,
+            switched_on_during_cycle=True,
+        )
+        mock_bt.real_trvs = {
+            "climate.controlled": controlled,
+            "climate.released": released,
+        }
+        mock_bt.released_trvs = {"climate.released"}
+        live_state = State("climate.controlled", HVACMode.HEAT, {"temperature": 23.5})
+        mock_bt.hass.states.get.side_effect = lambda entity_id: (
+            live_state if entity_id == "climate.controlled" else None
+        )
+
+        await self._call(mock_bt, **{ATTR_HVAC_MODE: HVACMode.OFF})
+
+        assert controlled.unread_report is None
+        assert controlled.held_turn is None
+        assert controlled.switched_on_during_cycle is False
+        assert controlled.confirmed_setpoint == 20.0
+        assert released.unread_report is released_report
+        assert released.switched_on_during_cycle is True
 
     @pytest.mark.asyncio
     async def test_empty_payload_is_ignored(self, mock_bt):

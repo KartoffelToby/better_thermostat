@@ -220,6 +220,7 @@ from .utils.entry_schema import (
 )
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    SETPOINT_MATCH_TOLERANCE,
     TRV_SETPOINT_KEYS,
     CoolerSendCache,
     InboundSetpoint,
@@ -344,6 +345,36 @@ def _supersede_held_reports(
         )
         if live_setpoint is not None:
             trv.remember_setpoint_confirmed(live_setpoint, trv.confirmed_write_id)
+
+
+def _maintenance_restore_confirmed(
+    self: BetterThermostat,
+    entity_id: str,
+    restored_target: float | None,
+    last_completed: float | None,
+) -> bool:
+    """Return whether maintenance finished restoring ``restored_target`` on the TRV."""
+    if (
+        restored_target is None
+        or last_completed is None
+        or abs(last_completed - restored_target) > SETPOINT_MATCH_TOLERANCE
+    ):
+        return False
+    hass = getattr(self, "hass", None)
+    if hass is None:
+        return False
+    trv_state = hass.states.get(entity_id)
+    if not isinstance(trv_state, State) or trv_report_is_unreadable(
+        self, entity_id, trv_state
+    ):
+        return False
+    live_setpoint = read_setpoint_celsius(
+        self, trv_state, TRV_SETPOINT_KEYS, "_run_valve_maintenance()"
+    )
+    return (
+        live_setpoint is not None
+        and abs(live_setpoint - restored_target) <= SETPOINT_MATCH_TOLERANCE
+    )
 
 
 # Modes in which a head's setpoint is no heating target.
@@ -4109,6 +4140,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         }
         setpoint_serviced: set[str] = set()
         mode_serviced: set[str] = set()
+        snapshot_setpoints: dict[str, float | None] = {}
+        last_maintenance_setpoint: dict[str, float] = {}
+        last_completed_setpoint: dict[str, float] = {}
         maintenance_completed = False
 
         try:
@@ -4132,6 +4166,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self, state, "temperature", None, "valve maintenance"
                 ),
             )
+            snapshot_setpoints = {
+                info.entity_id: getattr(info, "setpoint", None) for info in infos
+            }
             serviced_ids = {info.entity_id for info in infos}
 
             # Release guard for the TRVs that got no snapshot
@@ -4170,7 +4207,21 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     if device_released(self, entity_id):
                         return
                     setpoint_serviced.add(entity_id)
-                    await adapter_set_temperature(self, entity_id, temperature)
+                    trv = self.real_trvs[entity_id]
+                    restore_target = snapshot_setpoints.get(entity_id)
+                    if restore_target is None:
+                        restore_target = previous_commanded.get(entity_id)
+                    try:
+                        await adapter_set_temperature(self, entity_id, temperature)
+                    finally:
+                        written = trv.commanded_setpoint
+                        if written is not None and (
+                            restore_target is None
+                            or abs(written - restore_target) > SETPOINT_MATCH_TOLERANCE
+                        ):
+                            last_maintenance_setpoint[entity_id] = written
+                    if trv.commanded_setpoint is not None:
+                        last_completed_setpoint[entity_id] = trv.commanded_setpoint
 
             async def _set_mode(entity_id: str, mode: str) -> None:
                 if device_released(self, entity_id):
@@ -4231,7 +4282,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 trv.ignore_trv_states = False
                 trv.forget_held_reports()
                 if not maintenance_completed and entity_id in setpoint_serviced:
-                    trv.commanded_setpoint = previous_commanded.get(entity_id)
+                    previous = previous_commanded.get(entity_id)
+                    restored_target = snapshot_setpoints.get(entity_id)
+                    if restored_target is None:
+                        restored_target = previous
+                    unconfirmed_setpoint = last_maintenance_setpoint.get(entity_id)
+                    if (
+                        unconfirmed_setpoint is not None
+                        and not device_released(self, entity_id)
+                        and not _maintenance_restore_confirmed(
+                            self,
+                            entity_id,
+                            restored_target,
+                            last_completed_setpoint.get(entity_id),
+                        )
+                    ):
+                        trv.remember_setpoint_echo(unconfirmed_setpoint)
+                    trv.commanded_setpoint = previous
             if maintenance_completed:
                 task_manager = getattr(self, "task_manager", None)
                 for entity_id in setpoint_serviced:
@@ -5474,6 +5541,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             if _new_hvac_mode is not None:
                 # A mode-only payload still needs to be published and
                 # applied, exactly like async_set_hvac_mode.
+                _supersede_held_reports(self, snapshot_setpoints=False)
                 self.async_write_ha_state()
                 if self.in_maintenance:
                     self._control_needed_after_maintenance = True

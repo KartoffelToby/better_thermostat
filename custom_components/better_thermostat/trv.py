@@ -425,6 +425,15 @@ class Trv:
         self.accept_next_internal_temperature = False
         return accepted
 
+    def _append_pending_setpoint(self, value: float, write_id: int) -> None:
+        """Append ``(value, write_id)`` to the bounded pending-echo list."""
+        self.pending_setpoints = [
+            pending for pending in self.pending_setpoints if pending.value != value
+        ]
+        self.pending_setpoints.append(PendingSetpoint(value, write_id))
+        if len(self.pending_setpoints) > ECHO_SETPOINTS_LIMIT:
+            del self.pending_setpoints[0]
+
     def remember_setpoint_written(self, value: float | None) -> int:
         """Add a written setpoint to the values a report may echo.
 
@@ -447,15 +456,26 @@ class Trv:
         if value is None:
             return self.last_setpoint_write_id
         self.last_setpoint_write_id += 1
-        self.pending_setpoints = [
-            pending for pending in self.pending_setpoints if pending.value != value
-        ]
-        self.pending_setpoints.append(
-            PendingSetpoint(value, self.last_setpoint_write_id)
-        )
-        if len(self.pending_setpoints) > ECHO_SETPOINTS_LIMIT:
-            del self.pending_setpoints[0]
+        self._append_pending_setpoint(value, self.last_setpoint_write_id)
         return self.last_setpoint_write_id
+
+    def remember_setpoint_echo(self, value: float) -> None:
+        """Record a setpoint left on the device as an echo candidate.
+
+        Unlike :meth:`remember_setpoint_written`, an echo added while a control
+        write watchdog is already active attaches to that write's id so the
+        watchdog is not treated as superseded; when no watchdog is active, the
+        echo takes the next write id so earlier confirmations cannot retire it
+        until a later write succeeds and confirms.
+
+        Parameters
+        ----------
+        value : float
+            the setpoint in °C that may still arrive in a delayed report
+        """
+        if self.last_setpoint_write_id <= self.confirmed_write_id:
+            self.last_setpoint_write_id += 1
+        self._append_pending_setpoint(value, self.last_setpoint_write_id)
 
     def echo_setpoint_values(self) -> list[float]:
         """List the setpoints still on the wire, oldest write first.
