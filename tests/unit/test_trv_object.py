@@ -313,21 +313,25 @@ class TestEchoSetpoints:
         )
         trv.remember_setpoint_echo(30.0)
         assert trv.echo_setpoint_values() == [30.0]
-        assert trv.last_setpoint_write_id == 3
+        assert trv.last_setpoint_write_id == 2
+        assert trv.last_setpoint_echo_id == 3
 
         trv.remember_setpoint_confirmed(21.0, trv.confirmed_write_id)
         assert trv.echo_setpoint_values() == [30.0]
 
         later_id = trv.remember_setpoint_written(21.0)
+        assert later_id == 4
+        assert trv.last_setpoint_write_id == 4
         trv.remember_setpoint_confirmed(21.0, later_id)
         assert trv.echo_setpoint_values() == []
 
-    def test_remember_setpoint_echo_preserves_active_watchdog_write_id(self):
-        """Recording an echo while a write watchdog is active keeps the active write id."""
+    def test_remember_setpoint_echo_survives_active_watchdog_confirmation(self):
+        """An echo recorded while a watchdog is active survives its confirmation."""
         trv = trv_record(
             entity_id="climate.trv", confirmed_write_id=1, last_setpoint_write_id=1
         )
         active_id = trv.remember_setpoint_written(21.0)
+        assert active_id == 2
         assert trv.last_setpoint_write_id == 2
 
         trv.remember_setpoint_echo(30.0)
@@ -335,6 +339,13 @@ class TestEchoSetpoints:
         assert trv.echo_setpoint_values() == [21.0, 30.0]
 
         trv.remember_setpoint_confirmed(21.0, active_id)
+        assert trv.confirmed_setpoint == 21.0
+        assert trv.echo_setpoint_values() == [30.0]
+
+        later_id = trv.remember_setpoint_written(22.0)
+        assert later_id > active_id
+        assert trv.last_setpoint_write_id == later_id
+        trv.remember_setpoint_confirmed(22.0, later_id)
         assert trv.echo_setpoint_values() == []
 
 

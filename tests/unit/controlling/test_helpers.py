@@ -1045,6 +1045,53 @@ class TestCheckTargetTemperature:
         assert 17.5 in trv.echo_setpoint_values()
         assert "did not confirm the target temperature" in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_maintenance_echo_during_watchdog_survives_confirmation_without_superseding(
+        self,
+    ):
+        """A maintenance echo recorded during a confirmation settle pause survives confirmation."""
+        trv = trv_record(
+            entity_id="climate.trv1",
+            confirmed_setpoint=19.5,
+            commanded_setpoint=21.0,
+            target_temperature_received=False,
+        )
+        watched = trv.remember_setpoint_written(21.0)
+        reported = State("climate.trv1", HVACMode.HEAT, {"temperature": 21.0})
+
+        mock_hass = MagicMock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.states.get.return_value = reported
+
+        mock_self = ThermostatStandIn()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        recorded = False
+
+        async def _fake_sleep(duration: float) -> None:
+            nonlocal recorded
+            if duration > 1.0 and not recorded:
+                recorded = True
+                trv.remember_setpoint_echo(30.0)
+
+        with patch("asyncio.sleep", new=AsyncMock(side_effect=_fake_sleep)):
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 21.0
+            )
+
+        assert recorded is True
+        assert result is True
+        assert trv.last_setpoint_write_id == watched
+        assert trv.target_temperature_received is True
+        assert trv.confirmed_setpoint == 21.0
+        assert trv.echo_setpoint_values() == [30.0]
+
+        later = trv.remember_setpoint_written(22.0)
+        trv.remember_setpoint_confirmed(22.0, later)
+        assert trv.echo_setpoint_values() == []
+
 
 # ---------------------------------------------------------------------------
 # _get_valve_control — boost mode is gated by calibration_output
