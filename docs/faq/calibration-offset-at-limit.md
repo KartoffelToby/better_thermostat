@@ -24,14 +24,16 @@ protection, also drive it to a limit on purpose to open or close the valve.
 In those cases the TRV's reading carries the offset, and the gap to the
 room asks for no correction beyond the range.
 
-The issue is raised only when, on every control cycle for an hour:
+The issue is raised only when, on every control cycle for an hour, the
+offset Better Thermostat asks for and the offset the TRV reports are both
+within one offset step of the same limit, and on at least half of those
+cycles the gap between the room temperature and the TRV's reading asks for
+an offset more than one step beyond that limit. A cycle on which the room is
+about as warm as the TRV's reading asks for about the limit itself; it keeps
+the hour going but does not count towards the half.
 
-- the offset Better Thermostat asks for and the offset the TRV reports are
-  both within one offset step of the same limit, and
-- the gap between the room temperature and the TRV's reading asks for an
-  offset more than one step beyond that limit.
-
-A cycle that does not observe all of this starts the hour again: for
+A cycle that asks for an offset more than one step inside the range starts
+the hour again, and so does a cycle that does not observe the offset: for
 example a cycle while the room is off, while the TRV is unreachable or
 released, or while its offset entity reports nothing. A restart of Home
 Assistant starts it again too.
@@ -60,8 +62,8 @@ sent to the TRV and does not depend on the offset.
 ## When it clears
 
 The issue clears on its own as soon as a control cycle finds the offset off
-the limit, or finds that the gap no longer asks for more than the range
-holds. While the room is off, no cycle looks at the offset, and the issue
+the limit, or finds that the gap asks for an offset more than one step
+inside the range. While the room is off, no cycle looks at the offset, and the issue
 stays. It also goes when the TRV no longer uses Offset Based calibration,
 and with every restart of Home Assistant or reload of the thermostat; if the
 TRV still does not apply its offset, it comes back an hour later.

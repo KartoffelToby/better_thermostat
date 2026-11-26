@@ -7,6 +7,9 @@ import logging
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    get_model_quirks_name,
+)
 from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
@@ -17,6 +20,24 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _drives_tv02(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether the TRV is a TV02-Zigbee or one of its white labels.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing the per-TRV records
+    entity_id : str
+        Entity ID of the TRV
+
+    Returns
+    -------
+    bool
+        True when the TRV's model resolves onto this module.
+    """
+    return get_model_quirks_name(self.real_trvs[entity_id].model) == "TV02-Zigbee"
 
 
 def fix_local_calibration(
@@ -108,8 +129,7 @@ async def override_set_hvac_mode(
             ex,
         )
         return False
-    model = self.real_trvs[entity_id].model
-    if model == "TV02-Zigbee" and hvac_mode != HVACMode.OFF:
+    if _drives_tv02(self, entity_id) and hvac_mode != HVACMode.OFF:
         _LOGGER.debug(
             "better_thermostat %s: TRV %s device quirk hvac trv02-zigbee active",
             self.device_name,
@@ -146,8 +166,7 @@ async def override_set_temperature(
         False when the device refused it: the adapter write then carries the
         setpoint instead, with its own step rounding and retry handling.
     """
-    model = self.real_trvs[entity_id].model
-    if model == "TV02-Zigbee":
+    if _drives_tv02(self, entity_id):
         _LOGGER.debug(
             "better_thermostat %s: TRV %s device quirk trv02-zigbee active",
             self.device_name,

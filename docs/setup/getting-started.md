@@ -31,7 +31,7 @@ Turn **off** any internal time schedules, internal open-window detection, or agg
 
 ## 2) Install the integration
 
-Better Thermostat 2.0 requires **Home Assistant `2026.9.0` or newer**. The easiest way to install Better Thermostat is through **HACS** (Home Assistant Community Store):
+Better Thermostat 2.0 requires **Home Assistant `2026.11.0` or newer**. The easiest way to install Better Thermostat is through **HACS** (Home Assistant Community Store):
 
 <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=KartoffelToby&amp;repository=better_thermostat&amp;category=integration"><img alt="Open HACS repository" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
 

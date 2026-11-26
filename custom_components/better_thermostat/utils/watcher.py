@@ -38,6 +38,7 @@ from custom_components.better_thermostat.core.offset_limit import (
     OffsetAtLimit,
     advance_offset_at_limit,
     compute_offset_correction,
+    is_correction_inside_limit,
     is_correction_past_limit,
     is_offset_stuck_at_limit,
     limit_held_by,
@@ -782,12 +783,15 @@ def follow_calibration_offset_at_limit(
 ) -> None:
     """Follow a TRV's offset at the limit of its range through one control cycle.
 
-    A cycle counts towards the run when the offset it asks for and the offset
-    the TRV reports sit at the same limit of the range, and the correction
-    the gap between room and TRV reading asks for lies past that limit. A run
-    of such cycles that has lasted ``CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS``
-    is reported. A cycle that finds any of the three off the limit ends the
-    run and takes a raised report back. A cycle that lacks one of its inputs
+    A cycle continues the run when the offset it asks for and the offset the
+    TRV reports sit at the same limit of the range, and the correction the
+    gap between room and TRV reading asks for does not lie inside the range
+    by more than a step; it counts as past when that correction lies past the
+    limit by more than a step. A run that has lasted
+    ``CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS`` with at least half of its
+    cycles past is reported. A cycle that finds either offset off the limit,
+    or the correction inside the range, ends the run and takes a raised
+    report back. A cycle that lacks one of its inputs
     observes nothing: the run ends, since it has to be unbroken, and a raised
     report stands. The run is kept on the TRV between cycles; the caller takes
     it off at the start of each cycle and hands it in here, so a cycle that
@@ -834,12 +838,17 @@ def follow_calibration_offset_at_limit(
     if (
         limit is None
         or limit_held_by(reported_offset, lower, upper, step) != limit
-        or not is_correction_past_limit(correction, limit, step)
+        or is_correction_inside_limit(correction, limit, step)
     ):
         clear_calibration_offset_at_limit(self, entity_id)
         return
     now_monotonic = self.clock.monotonic()
-    run = advance_offset_at_limit(run, limit, now_monotonic)
+    run = advance_offset_at_limit(
+        run,
+        limit,
+        now_monotonic,
+        past=is_correction_past_limit(correction, limit, step),
+    )
     trv.calibration_offset_at_limit = run
     if is_offset_stuck_at_limit(run, now_monotonic):
         report_calibration_offset_at_limit(self, entity_id, limit)

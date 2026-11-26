@@ -225,6 +225,10 @@
       "title": "BT: {trv} è controllato da più di un Better Thermostat",
       "description": "Il termostato {trv} appartiene a questi Better Thermostat: {entries}. Gli inviano temperature obiettivo e modalità in conflitto. Rimuovilo da tutti tranne uno nelle loro impostazioni; poi questo problema scompare da solo."
     },
+    "unsupported_home_assistant": {
+      "title": "BT: Home Assistant {running} è troppo vecchio per Better Thermostat",
+      "description": "Questa versione di Better Thermostat richiede Home Assistant {required} o successivo, ma è in esecuzione Home Assistant {running}. Nessun Better Thermostat viene configurato finché Home Assistant non viene aggiornato. Aggiorna Home Assistant oppure, nel frattempo, reinstalla l'ultima versione di Better Thermostat compatibile con il tuo Home Assistant."
+    },
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} non accetta la temperatura obiettivo",
       "description": "Better Thermostat scrive ripetutamente la temperatura obiettivo {wanted} su {entity}, ma il termostato continua a riportare {held}. La stanza non viene riscaldata come previsto da Better Thermostat.\n\nCause comuni:\n- Il termostato ha un proprio limite del setpoint inferiore al massimo che pubblica, ad esempio `max_heat_setpoint_limit` in Zigbee2MQTT.\n- Il termostato è in una modalità o in un preset in cui ignora le temperature obiettivo, come una modalità programmata.\n- Il termostato ha perso la connessione radio o la batteria è scarica.\n\nBetter Thermostat continua a scrivere la temperatura obiettivo, al massimo una volta all'ora. Questo problema si risolve da solo non appena il termostato riporta la temperatura obiettivo."

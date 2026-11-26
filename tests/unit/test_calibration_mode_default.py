@@ -9,6 +9,7 @@ offered as the default.
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import pathlib
@@ -152,8 +153,19 @@ def test_a_named_but_unknown_mode_does_not_become_the_default(monkeypatch):
 
 def test_config_flow_uses_the_shared_default():
     """The form default and the submission normaliser read the same constant."""
+    for function in (
+        config_flow_module._build_advanced_fields,
+        config_flow_module._normalize_advanced_submission,
+    ):
+        parameter = inspect.signature(function).parameters["default_calibration_mode"]
+        assert parameter.default is DEFAULT_CALIBRATION_MODE
+    context_field = next(
+        field
+        for field in dataclasses.fields(config_flow_module._AdvancedContext)
+        if field.name == "default_calibration_mode"
+    )
+    assert context_field.default is DEFAULT_CALIBRATION_MODE
     source = inspect.getsource(config_flow_module)
-    assert "CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE" in source
     assert (
         "CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION" not in source
     )
