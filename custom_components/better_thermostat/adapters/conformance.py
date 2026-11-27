@@ -13,13 +13,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Final
 
-from . import deconz, generic, mqtt, shelly, tado, zha, zwave_js
+from . import deconz, generic, mqtt, ramses_cc, shelly, tado, zha, zwave_js
 from .types import TrvAdapter
 
 ECOSYSTEM_ADAPTERS: Final[Mapping[str, TrvAdapter]] = {
     "deconz": deconz,
     "generic": generic,
     "mqtt": mqtt,
+    "ramses_cc": ramses_cc,
     "shelly": shelly,
     "tado": tado,
     "zha": zha,

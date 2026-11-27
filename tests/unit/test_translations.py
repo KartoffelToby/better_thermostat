@@ -185,6 +185,14 @@ def test_all_keys_translated(lang: str):
         "options.error.valve_only_calibration_mode",
         "issues.invalid_valve_calibration.title",
         "issues.invalid_valve_calibration.description",
+        "config.error.ramses_requires_heating_zone",
+        "options.error.ramses_requires_heating_zone",
+        "exceptions.ramses_invalid_setpoint.message",
+        "exceptions.ramses_invalid_zone.message",
+        "exceptions.ramses_invalid_zone_bounds.message",
+        "exceptions.ramses_missing_zone_config.message",
+        "exceptions.ramses_service_unavailable.message",
+        "exceptions.ramses_unsupported_hvac_mode.message",
     }
     missing = sorted(english.keys() - translated.keys() - pending_translation)
     assert not missing, f"{lang}.json is missing keys: {missing}"

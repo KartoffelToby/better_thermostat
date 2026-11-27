@@ -95,6 +95,7 @@
       "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists.",
       "trv_is_better_thermostat": "{trv} is a Better Thermostat. Select a real thermostat instead.",
       "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
+      "ramses_requires_heating_zone": "RAMSES RF entity {trv} is not an Evohome heating zone. The Evohome system controller and ventilation entities cannot be used as thermostats. Select an individual heating-zone climate entity.",
       "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
       "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does.",
       "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI.",
@@ -196,6 +197,7 @@
       "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists.",
       "trv_is_better_thermostat": "{trv} is a Better Thermostat. Select a real thermostat instead.",
       "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
+      "ramses_requires_heating_zone": "RAMSES RF entity {trv} is not an Evohome heating zone. The Evohome system controller and ventilation entities cannot be used as thermostats. Select an individual heating-zone climate entity.",
       "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
       "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does.",
       "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI.",
@@ -656,6 +658,12 @@
     }
   },
   "exceptions": {
+    "ramses_invalid_zone": {"message": "{entity} is not a RAMSES RF heating zone."},
+    "ramses_missing_zone_config": {"message": "RAMSES RF zone {entity} has no zone configuration."},
+    "ramses_invalid_zone_bounds": {"message": "RAMSES RF zone {entity} has invalid temperature bounds."},
+    "ramses_service_unavailable": {"message": "The RAMSES RF set_zone_mode action is unavailable."},
+    "ramses_unsupported_hvac_mode": {"message": "RAMSES RF zone {entity} does not support HVAC mode {mode}."},
+    "ramses_invalid_setpoint": {"message": "RAMSES RF zone {entity} has invalid setpoint {temperature}."},
     "unsupported_hvac_mode": {
       "message": "{device_name} does not support the HVAC mode {mode}. Supported modes: {modes}."
     },
