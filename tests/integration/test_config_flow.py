@@ -1229,3 +1229,106 @@ async def test_each_thermostat_of_a_room_gets_its_own_advanced_step(hass):
         TRV_ID,
         SPARE_TRV_ID,
     ]
+
+
+@pytest.mark.quality_rule("test-before-configure")
+@pytest.mark.parametrize("flow_kind", ["create", "options"])
+async def test_ramses_non_zone_entity_rejected_in_configuration(
+    hass, fake_trv, flow_kind
+):
+    """An Evohome system controller must not be selected as a room thermostat."""
+    controller_id = "climate.ramses_system_controller"
+    set_room_sensor(hass, 19.0)
+    registry_entry = er.async_get(hass).async_get_or_create(
+        "climate",
+        "ramses_cc",
+        "system_controller",
+        suggested_object_id="ramses_system_controller",
+    )
+    assert registry_entry.entity_id == controller_id
+    # Advertise TARGET_TEMPERATURE deliberately: the RAMSES-specific check
+    # must reject non-zones even if generic feature checks would accept them.
+    hass.states.async_set(
+        controller_id,
+        HVACMode.HEAT,
+        {
+            "system_mode": "auto",
+            "supported_features": int(ClimateEntityFeature.TARGET_TEMPERATURE),
+        },
+    )
+
+    if flow_kind == "create":
+        form = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            form["flow_id"], _user_step_input(controller_id)
+        )
+    else:
+        await _run_create_flow(hass, _user_step_input(TRV_ID))
+        entry = _only_entry(hass)
+        await wait_for_startup(hass, entry)
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            _user_step_input(TRV_ID) | {CONF_THERMOSTAT: [TRV_ID, controller_id]},
+        )
+        assert [item["trv"] for item in entry.options[CONF_THERMOSTAT]] == [TRV_ID]
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "user", result
+    assert result["errors"] == {CONF_THERMOSTAT: "ramses_requires_heating_zone"}
+    assert result["description_placeholders"]["trv"] == controller_id
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_ramses_heating_zone_is_accepted_in_configuration(hass):
+    """The same integration is supported when a real zone index is present."""
+    zone_id = "climate.ramses_heating_zone"
+    set_room_sensor(hass, 19.0)
+    registry_entry = er.async_get(hass).async_get_or_create(
+        "climate",
+        "ramses_cc",
+        "heating_zone",
+        suggested_object_id="ramses_heating_zone",
+    )
+    assert registry_entry.entity_id == zone_id
+    hass.states.async_set(
+        zone_id,
+        HVACMode.HEAT,
+        {
+            "zone_index": "00",
+            "config": {"min_temp": 5, "max_temp": 35},
+            "supported_features": int(ClimateEntityFeature.TARGET_TEMPERATURE),
+            "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+            "temperature": 18.0,
+            "current_temperature": 17.0,
+        },
+    )
+    form = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        form["flow_id"], _user_step_input(zone_id)
+    )
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_unavailable_ramses_zone_is_not_mistaken_for_controller(hass):
+    """Missing live attributes at startup must not prove an entity unsupported."""
+    zone_id = "climate.ramses_unavailable_zone"
+    set_room_sensor(hass, 19.0)
+    registry_entry = er.async_get(hass).async_get_or_create(
+        "climate",
+        "ramses_cc",
+        "unavailable_zone",
+        suggested_object_id="ramses_unavailable_zone",
+    )
+    assert registry_entry.entity_id == zone_id
+    hass.states.async_set(zone_id, STATE_UNAVAILABLE)
+    form = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        form["flow_id"], _user_step_input(zone_id)
+    )
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result

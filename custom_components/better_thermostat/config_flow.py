@@ -20,7 +20,12 @@ from homeassistant.components.climate.const import (
     PRESET_SLEEP,
     HVACMode,
 )
-from homeassistant.const import CONF_NAME, STATE_UNAVAILABLE, UnitOfTemperature
+from homeassistant.const import (
+    CONF_NAME,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
     config_validation as cv,
@@ -1448,6 +1453,17 @@ def _unusable_climate_error(
         if registry_entry is not None and is_bt_climate_entity(registry_entry):
             return bt_error, {placeholder: entity_id}
         state = hass.states.get(entity_id)
+        # RAMSES RF controller and ventilation entities are not heating zones.
+        # Do not infer an entity type from missing attributes at startup.
+        if (
+            field == CONF_THERMOSTAT
+            and registry_entry is not None
+            and registry_entry.platform == "ramses_cc"
+            and state is not None
+            and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            and state.attributes.get("zone_index") is None
+        ):
+            return "ramses_requires_heating_zone", {placeholder: entity_id}
         if (
             entity_id in kept_ids
             or state is None
