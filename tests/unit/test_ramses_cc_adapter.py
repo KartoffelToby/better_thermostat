@@ -15,6 +15,7 @@ import pytest
 from custom_components.better_thermostat.adapters import ramses_cc
 from custom_components.better_thermostat.adapters.types import AdapterHost, TrvAdapter
 from custom_components.better_thermostat.utils.retry import WriteWithheldError
+from tests.factories import make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.controller_42_012345_foo"
 ZONE_ATTRS = {"zone_index": 0, "config": {"min_temp": 5, "max_temp": 35}}
@@ -27,8 +28,9 @@ def adapter_env() -> Iterator[tuple[AdapterHost, MagicMock, MagicMock]]:
     hass.services.has_service.return_value = True
     hass.services.async_call = AsyncMock()
 
-    registry = MagicMock()
-    registry.async_get.return_value = SimpleNamespace(platform="ramses_cc")
+    registry = make_entity_registry(
+        make_registry_entry(ENTITY_ID, platform="ramses_cc")
+    )
     host = cast(AdapterHost, SimpleNamespace(hass=hass, context=Context()))
 
     with patch.object(ramses_cc.er, "async_get", return_value=registry):
@@ -78,8 +80,9 @@ async def test_temperature_sends_permanent_override(adapter_env, temperature):
 @pytest.mark.parametrize("mode", ["auto", "cool", "unknown"])
 async def test_unsupported_mode_rejected_without_write(adapter_env, mode):
     host, hass, _ = adapter_env
-    with pytest.raises(HomeAssistantError, match="Unsupported RAMSES HVAC mode"):
+    with pytest.raises(HomeAssistantError) as exc:
         await ramses_cc.set_hvac_mode(host, ENTITY_ID, mode)
+    assert exc.value.translation_key == "ramses_unsupported_hvac_mode"
     hass.services.async_call.assert_not_awaited()
 
 
@@ -112,32 +115,36 @@ async def test_invalid_zone_bounds_rejected(adapter_env, bounds):
         "heat",
         {"zone_index": 0, "config": {"min_temp": low, "max_temp": high}},
     )
-    with pytest.raises(HomeAssistantError, match="invalid temperature bounds"):
+    with pytest.raises(HomeAssistantError) as exc:
         await ramses_cc.set_temperature(host, ENTITY_ID, 18.0)
+    assert exc.value.translation_key == "ramses_invalid_zone_bounds"
     hass.services.async_call.assert_not_awaited()
 
 
 @pytest.mark.parametrize("temperature", [4.5, 35.5, math.nan, math.inf])
 async def test_invalid_setpoints_rejected(adapter_env, temperature):
     host, hass, _ = adapter_env
-    with pytest.raises(HomeAssistantError, match="Invalid RAMSES setpoint"):
+    with pytest.raises(HomeAssistantError) as exc:
         await ramses_cc.set_temperature(host, ENTITY_ID, temperature)
+    assert exc.value.translation_key == "ramses_invalid_setpoint"
     hass.services.async_call.assert_not_awaited()
 
 
 async def test_wrong_integration_rejected(adapter_env):
     host, hass, registry = adapter_env
-    registry.async_get.return_value = SimpleNamespace(platform="other")
-    with pytest.raises(HomeAssistantError, match="not a RAMSES heating zone"):
+    registry.entities[ENTITY_ID] = make_registry_entry(ENTITY_ID, platform="other")
+    with pytest.raises(HomeAssistantError) as exc:
         await ramses_cc.set_temperature(host, ENTITY_ID, 18.0)
+    assert exc.value.translation_key == "ramses_invalid_zone"
     hass.services.async_call.assert_not_awaited()
 
 
 async def test_missing_ramses_service_rejected(adapter_env):
     host, hass, _ = adapter_env
     hass.services.has_service.return_value = False
-    with pytest.raises(HomeAssistantError, match="set_zone_mode is unavailable"):
+    with pytest.raises(HomeAssistantError) as exc:
         await ramses_cc.set_temperature(host, ENTITY_ID, 18.0)
+    assert exc.value.translation_key == "ramses_service_unavailable"
     hass.services.async_call.assert_not_awaited()
 
 

@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
+from ..utils.const import DOMAIN
 from ..utils.helpers import state_is_live
 from ..utils.retry import WriteWithheldError
 from .base import AdapterCapabilities, DeviceChannels
@@ -53,23 +54,41 @@ def validate_zone(hass: HomeAssistant, entity_id: str) -> tuple[float, float]:
         or state.domain != "climate"
         or state.attributes.get("zone_index") is None
     ):
-        raise HomeAssistantError(f"{entity_id} is not a RAMSES heating zone")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="ramses_invalid_zone",
+            translation_placeholders={"entity": entity_id},
+        )
 
     config = state.attributes.get("config")
     if not isinstance(config, Mapping):
-        raise HomeAssistantError(f"{entity_id} has no zone configuration")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="ramses_missing_zone_config",
+            translation_placeholders={"entity": entity_id},
+        )
 
     try:
         low = float(config["min_temp"])
         high = float(config["max_temp"])
     except (KeyError, TypeError, ValueError) as err:
-        raise HomeAssistantError(f"{entity_id} has invalid temperature bounds") from err
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="ramses_invalid_zone_bounds",
+            translation_placeholders={"entity": entity_id},
+        ) from err
 
     if not math.isfinite(low) or not math.isfinite(high) or low >= high:
-        raise HomeAssistantError(f"{entity_id} has invalid temperature bounds")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="ramses_invalid_zone_bounds",
+            translation_placeholders={"entity": entity_id},
+        )
 
     if not hass.services.has_service("ramses_cc", "set_zone_mode"):
-        raise HomeAssistantError("RAMSES RF set_zone_mode is unavailable")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="ramses_service_unavailable"
+        )
 
     return low, high
 
@@ -103,14 +122,25 @@ async def set_zone_override(
     if hvac_mode == "off":
         temperature = low
     elif hvac_mode != "heat":
-        raise HomeAssistantError(f"Unsupported RAMSES HVAC mode: {hvac_mode}")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="ramses_unsupported_hvac_mode",
+            translation_placeholders={"entity": entity_id, "mode": hvac_mode},
+        )
 
     if (
         temperature is None
         or not math.isfinite(temperature)
         or not low <= temperature <= high
     ):
-        raise HomeAssistantError(f"Invalid RAMSES setpoint: {temperature}")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="ramses_invalid_setpoint",
+            translation_placeholders={
+                "entity": entity_id,
+                "temperature": str(temperature),
+            },
+        )
 
     _LOGGER.debug(
         "RAMSES %s: HVAC mode '%s' with permanent override %.1f°C",

@@ -656,6 +656,12 @@
     }
   },
   "exceptions": {
+    "ramses_invalid_zone": {"message": "{entity} is not a RAMSES RF heating zone."},
+    "ramses_missing_zone_config": {"message": "RAMSES RF zone {entity} has no zone configuration."},
+    "ramses_invalid_zone_bounds": {"message": "RAMSES RF zone {entity} has invalid temperature bounds."},
+    "ramses_service_unavailable": {"message": "The RAMSES RF set_zone_mode action is unavailable."},
+    "ramses_unsupported_hvac_mode": {"message": "RAMSES RF zone {entity} does not support HVAC mode {mode}."},
+    "ramses_invalid_setpoint": {"message": "RAMSES RF zone {entity} has invalid setpoint {temperature}."},
     "unsupported_hvac_mode": {
       "message": "{device_name} does not support the HVAC mode {mode}. Supported modes: {modes}."
     },
